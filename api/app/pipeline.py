@@ -12,6 +12,7 @@ its direction, which is exactly the causality rule in the plugin contract.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Sequence
@@ -25,8 +26,8 @@ from .models.base import (
     ContractError,
     Direction,
     FrameResult,
-    PointPrompt,
     PromptSet,
+    VideoObjectTracker,
     check_frame_result,
 )
 from .models.frames import DirectoryFrameSource
@@ -102,6 +103,15 @@ def _instantiate(model_key: str, settings: Settings, checkpoint: str | None):
     return tracker
 
 
+# ------------------------------------------------------------------ preview cache
+# Clicking in the studio fires one preview per interaction. Building a tracker (and
+# loading weights) on every click would be unusable for a real model, so keep one
+# warm instance per (video, model, checkpoint) and reuse it. Access is serialised:
+# a single GPU cannot serve two overlapping forwards without thrashing VRAM.
+_preview_lock = threading.Lock()
+_preview_cache: dict[tuple, tuple[VideoObjectTracker, str]] = {}
+
+
 def preview_mask(
     *,
     workspace: Workspace,
@@ -115,14 +125,31 @@ def preview_mask(
     meta = workspace.read_meta(video_id)
     frames = frame_source(workspace, video_id, meta)
     frame_index = min(max(prompt.frame_index, 0), frames.n_frames - 1)
+    key = (video_id, model_key, checkpoint or "", settings.device)
 
-    tracker = _instantiate(model_key, settings, checkpoint)
-    tracker.set_video(frames)
-    tracker.reset()
+    with _preview_lock:
+        cached = _preview_cache.get(key)
+        if cached is None:
+            tracker = _instantiate(model_key, settings, checkpoint)
+            tracker.set_video(frames)
+            tracker.warmup()
+        else:
+            tracker, attached = cached
+            if attached != video_id:
+                tracker.set_video(frames)
+                tracker.warmup()
+        _preview_cache[key] = (tracker, video_id)
 
-    result = tracker.add_prompt(_clamp(prompt, frame_index))
-    check_frame_result(result, frames.shape)
-    return result.mask
+        tracker.reset()
+        result = tracker.add_prompt(_clamp(prompt, frame_index))
+        check_frame_result(result, frames.shape)
+        return result.mask
+
+
+def clear_preview_cache() -> None:
+    """Drop warm preview trackers (tests, or after a model checkpoint changes)."""
+    with _preview_lock:
+        _preview_cache.clear()
 
 
 def run_tracking(

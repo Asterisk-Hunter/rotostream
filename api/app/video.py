@@ -163,6 +163,15 @@ def extract_frames(
     return len(written), width, height
 
 
+def read_frame(frames_dir: str | Path, index: int) -> np.ndarray:
+    """Decode one extracted frame as ``(H, W, 3)`` uint8 RGB."""
+    path = Path(frames_dir) / f"{index:06d}.jpg"
+    if not path.exists():
+        raise FileNotFoundError(f"frame {index} not extracted")
+    with Image.open(path) as image:
+        return np.asarray(image.convert("RGB"), dtype=np.uint8)
+
+
 # ------------------------------------------------------------------- exports
 @dataclass
 class ExportInputs:
@@ -242,6 +251,7 @@ def export_alpha_webm(inp: ExportInputs, progress: Progress) -> Path:
             ["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "32",
              "-auto-alt-ref", "0", "-row-mt", "1", "-cpu-used", "4"],
         )
+        progress(1.0, f"wrote {inp.out_path.name}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return inp.out_path
@@ -261,6 +271,7 @@ def export_overlay_mp4(inp: ExportInputs, progress: Progress) -> Path:
             tmp, inp.fps, inp.out_path,
             ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
         )
+        progress(1.0, f"wrote {inp.out_path.name}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return inp.out_path
@@ -283,6 +294,7 @@ def export_replace_bg(inp: ExportInputs, progress: Progress, *, background: str 
             tmp, inp.fps, inp.out_path,
             ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
         )
+        progress(1.0, f"wrote {inp.out_path.name}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return inp.out_path
@@ -299,6 +311,7 @@ def export_cutout_zip(inp: ExportInputs, progress: Progress) -> Path:
             archive.write(path, arcname=f"cutout/{index:06d}.png")
             path.unlink(missing_ok=True)
             progress(0.95 * (index + 1) / inp.n_frames, f"packing {index + 1}/{inp.n_frames}")
+    progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
 
 
@@ -309,6 +322,7 @@ def export_mask_zip(inp: ExportInputs, progress: Progress) -> Path:
             if path.exists():
                 archive.write(path, arcname=f"masks/{index:06d}.png")
             progress(0.95 * (index + 1) / inp.n_frames, f"packing {index + 1}/{inp.n_frames}")
+    progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
 
 
@@ -334,6 +348,7 @@ def export_mask_rle(inp: ExportInputs, progress: Progress) -> Path:
         "frames": records,
     }
     inp.out_path.write_text(json.dumps(payload), encoding="utf-8")
+    progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
 
 
