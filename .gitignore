@@ -1,0 +1,40 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---- Env ----
+.env
+.env.local
+.env.*.local
+
+# ---- Runtime data (uploads, extracted frames, masks, exports) ----
+workspace/
+data/
+datasets/
+
+# ---- Datasets / checkpoints ----
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

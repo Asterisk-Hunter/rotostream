@@ -1,0 +1,22 @@
+{
+  "name": "rotostream",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI rotoscoping studio - Next.js + FastAPI shell around a pluggable video object tracker",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "node scripts/dev.mjs --api-only",
+    "dev:web": "node scripts/dev.mjs --web-only",
+    "build": "pnpm --dir web build",
+    "start": "pnpm --dir web start",
+    "lint": "pnpm --dir web lint",
+    "typecheck": "pnpm --dir web typecheck",
+    "test:web": "pnpm --dir web test",
+    "test:api": ".venv/Scripts/python -m pytest api/tests -q || .venv/bin/python -m pytest api/tests -q",
+    "test:ml": ".venv/Scripts/python -m pytest ml/tests -q || .venv/bin/python -m pytest ml/tests -q",
+    "check:model": ".venv/Scripts/python api/scripts/check_model.py || .venv/bin/python api/scripts/check_model.py"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
