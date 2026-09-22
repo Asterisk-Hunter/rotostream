@@ -1,0 +1,9 @@
+# pnpm 10.4.1 requires `packages` to be present when this file exists; create-next-app
+# generated one containing only ignoredBuiltDependencies, which pnpm rejected outright.
+packages:
+  - web
+
+# Sharp and unrs-resolver ship prebuilt binaries; skip their build scripts.
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

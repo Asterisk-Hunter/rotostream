@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. The accent matches the mask overlay colour the API paints
+ * (ACCENT in api/app/masks.py), so the UI and the rendered overlays agree.
+ */
+@theme {
+  --color-ink-950: #07080b;
+  --color-ink-900: #0b0d12;
+  --color-ink-850: #101319;
+  --color-ink-800: #161a21;
+  --color-ink-750: #1c212a;
+  --color-ink-700: #232936;
+  --color-ink-600: #333b4b;
+  --color-ink-500: #4a5468;
+  --color-ink-400: #6d7789;
+  --color-ink-300: #9aa4b6;
+  --color-ink-200: #c3cad7;
+  --color-ink-100: #e8ecf4;
+
+  --color-accent-500: #0ea5e9;
+  --color-accent-400: #38bdf8;
+  --color-accent-300: #7dd3fc;
+  --color-positive: #4ade80;
+  --color-negative: #fb7185;
+  --color-warn: #fbbf24;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono", Menlo,
+    Consolas, monospace;
+
+  --radius-panel: 0.625rem;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-ink-200);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent-400) 35%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent-400);
+    outline-offset: 2px;
+  }
+
+  /* Numerals should never jitter while frames tick past. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-ink-900);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-700);
+    border-radius: 999px;
+    border: 2px solid var(--color-ink-900);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-600);
+  }
+}
+
+@utility checker {
+  /* Transparency grid behind the frame, so alpha exports read correctly. */
+  background-image:
+    linear-gradient(45deg, var(--color-ink-850) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--color-ink-850) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--color-ink-850) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--color-ink-850) 75%);
+  background-size: 18px 18px;
+  background-position:
+    0 0,
+    0 9px,
+    9px -9px,
+    -9px 0px;
+  background-color: var(--color-ink-900);
+}
+
+@utility range-track {
+  /* Shared styling for the frame scrubber. */
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-ink-700);
+}
