@@ -15,7 +15,7 @@ from app.video import (
     run_export,
     target_frame_size,
 )
-from conftest import requires_ffmpeg
+from marks import requires_ffmpeg
 
 
 # ------------------------------------------------------------ geometry helpers

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     allowed_extensions: str = ".mp4,.mov,.m4v,.webm,.mkv,.avi"
 
     # --- http ---
+    #: Bind address. Consumed by ``scripts/dev.mjs``; uvicorn still takes the
+    #: flags it is launched with, so these exist so the port lives in one place.
+    host: str = "127.0.0.1"
+    #: 8010 rather than 8000 - see the note in .env.example.
+    port: int = 8010
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     @property

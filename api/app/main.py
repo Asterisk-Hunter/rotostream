@@ -1,6 +1,6 @@
 """RotoStream API entrypoint.
 
-    uvicorn app.main:app --reload --port 8000
+    uvicorn app.main:app --reload --port 8010
 """
 from __future__ import annotations
 

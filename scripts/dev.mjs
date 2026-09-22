@@ -9,6 +9,7 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +19,22 @@ const isWin = process.platform === "win32";
 const args = new Set(process.argv.slice(2));
 const apiOnly = args.has("--api-only");
 const webOnly = args.has("--web-only");
+
+// 8010, not 8000: plenty of other dev servers sit on 8000 and a silent port
+// collision shows up as a confusing 404 from whatever is already listening.
+const API_HOST = process.env.ROTOSTREAM_HOST ?? "127.0.0.1";
+const API_PORT = Number(process.env.ROTOSTREAM_PORT ?? 8010);
+const WEB_PORT = Number(process.env.WEB_PORT ?? 3000);
+
+/** True when something is already listening on host:port. */
+function portInUse(port, host) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", (err) => resolve(err.code === "EADDRINUSE"));
+    probe.once("listening", () => probe.close(() => resolve(false)));
+    probe.listen(port, host);
+  });
+}
 
 // Prefer the project venv, fall back to whatever `python` is on PATH.
 const venvPython = isWin
@@ -77,20 +94,49 @@ function shutdown() {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-if (!webOnly) {
-  run(
-    "api",
-    "36",
-    python,
-    ["-m", "uvicorn", "app.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000"],
-    path.join(root, "api"),
+async function main() {
+  if (!webOnly && (await portInUse(API_PORT, API_HOST))) {
+    process.stderr.write(
+      `\x1b[31m[dev]\x1b[0m port ${API_PORT} is already in use (another uvicorn? your own app?).\n` +
+        `      Set ROTOSTREAM_PORT to something free, then point the web app at it:\n` +
+        `        ROTOSTREAM_PORT=8020 node scripts/dev.mjs\n` +
+        `        NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8020   # in web/.env.local\n`,
+    );
+    process.exit(1);
+  }
+
+  if (!webOnly) {
+    run(
+      "api",
+      "36",
+      python,
+      [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--reload",
+        "--host",
+        API_HOST,
+        "--port",
+        String(API_PORT),
+      ],
+      path.join(root, "api"),
+    );
+  }
+
+  if (!apiOnly) {
+    run(
+      "web",
+      "35",
+      isWin ? "pnpm.cmd" : "pnpm",
+      ["dev", "--port", String(WEB_PORT)],
+      path.join(root, "web"),
+    );
+  }
+
+  process.stdout.write(
+    `\x1b[2m[dev]\x1b[0m api http://${API_HOST}:${API_PORT}/docs   web http://localhost:${WEB_PORT}\n`,
   );
 }
 
-if (!apiOnly) {
-  run("web", "35", isWin ? "pnpm.cmd" : "pnpm", ["dev"], path.join(root, "web"));
-}
-
-process.stdout.write(
-  `\x1b[2m[dev]\x1b[0m api http://127.0.0.1:8000/docs   web http://localhost:3000\n`,
-);
+main();

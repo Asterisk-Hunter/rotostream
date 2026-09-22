@@ -18,7 +18,7 @@ from app.jobs import reset_job_manager  # noqa: E402
 from app.pipeline import clear_preview_cache  # noqa: E402
 from app.settings import reset_settings_cache  # noqa: E402
 from app.storage import reset_workspace_cache  # noqa: E402
-from app.video import ffmpeg_available  # noqa: E402
+from marks import requires_ffmpeg  # noqa: E402  (re-exported for convenience)
 
 
 def _reset_caches() -> None:
@@ -39,9 +39,6 @@ def isolated_workspace(tmp_path, monkeypatch):
     _reset_caches()
 
 
-requires_ffmpeg = pytest.mark.skipif(
-    not ffmpeg_available(), reason="ffmpeg/ffprobe not on PATH"
-)
 
 
 def write_video(path: Path, frames: np.ndarray, fps: float = 10.0) -> Path:

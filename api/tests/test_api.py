@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from conftest import requires_ffmpeg
+from marks import requires_ffmpeg
 
 PROMPT = {"frame_index": 0, "points": [{"x": 25, "y": 48, "positive": True}]}
 

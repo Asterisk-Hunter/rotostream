@@ -1,5 +1,9 @@
 """YOUR MODEL GOES HERE — the from-scratch memory-attention tracker.
 
+Run everything from the ``ml/`` directory (or install the harness package), since
+``api/`` and ``ml/`` are not installed - ``rotostream_ml`` adds the sibling ``api``
+directory to ``sys.path`` for you.
+
 The rest of RotoStream is finished. This file is the seam: implement the five
 methods below (plus the two training hooks) and the whole application — upload,
 click-to-prompt, propagation, mask overlays, exports, J&F evaluation — starts
@@ -49,12 +53,19 @@ Development order that saves time
 ---------------------------------
 1. Implement it, set ``implemented=True`` in ``info()``.
 2. ``python api/scripts/check_model.py sam2_memory`` — contract checks.
-3. ``python -m ml.evaluate --tracker sam2_memory --dataset synthetic`` — synthetic
-   sequences with ground truth, including occlusion and re-entry. Fix
-   directionality and off-by-one bugs here, not on real footage.
-4. ``python -m ml.train --tracker sam2_memory --dataset davis`` — train the stack.
-5. ``python -m ml.evaluate --tracker sam2_memory --dataset davis --split val`` —
-   report J & F for the README.
+3. ``python -m rotostream_ml.leakcheck --model sam2_memory --all`` (from ``ml/``)
+   — proves the memory bank never reads unvisited frames. Do this before trusting
+   any number you get, because leakage inflates J&F and is invisible otherwise.
+4. ``python -m rotostream_ml.evaluate --model sam2_memory --dataset synthetic``
+   — toy sequences with exact ground truth, including occlusion (``occlusion``),
+   off-screen re-entry (``reentry``) and an identical-lookalike distractor.
+   Fix directionality and off-by-one bugs here, not on real footage.
+5. ``python -m rotostream_ml.train --model sam2_memory --dry-run`` then
+   ``--overfit`` — verify the training path before spending GPU hours.
+6. ``python -m rotostream_ml.train --model sam2_memory --dataset davis --root ...``
+   — train the memory stack.
+7. ``python -m rotostream_ml.evaluate --model sam2_memory --dataset davis --root ...
+   --split val --json runs/davis_val.json`` — the J & F number for your README.
 """
 from __future__ import annotations
 
