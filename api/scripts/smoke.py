@@ -187,9 +187,9 @@ def main() -> int:
         models = {m["name"]: m for m in client.get("/api/models").json()}
         check("naive tracker registered", "naive" in models)
         check(
-            "sam2_memory registered as unimplemented",
-            models.get("sam2_memory", {}).get("implemented") is False,
-            "implemented=false until the model lands",
+            "sam2_memory registered as implemented",
+            models.get("sam2_memory", {}).get("implemented") is True,
+            "implemented=true once the memory stack landed",
         )
 
         section("upload + extraction")
@@ -319,7 +319,7 @@ def main() -> int:
                 check("video is gone", client.get(f"/api/videos/{video_id}").status_code == 404)
 
     print(f"\n\033[32m{passed} checks passed\033[0m - the API is wired up end to end.")
-    print("If sam2_memory still reports implemented=false, the app is ready; the model is the only gap.")
+    print("Every registered tracker reports implemented=true - there is no longer a model gap.")
     return 0
 
 

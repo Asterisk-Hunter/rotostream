@@ -7,6 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models import registry
+from app.models.base import Direction, FrameResult, PromptSet, TrackerInfo, VideoObjectTracker
 from marks import requires_ffmpeg
 
 PROMPT = {"frame_index": 0, "points": [{"x": 25, "y": 48, "positive": True}]}
@@ -48,11 +50,11 @@ def test_health_reports_capabilities(client):
     assert payload["torch"] is True
 
 
-def test_models_endpoint_marks_the_stub_as_unimplemented(client):
+def test_models_endpoint_reports_the_memory_tracker_as_implemented(client):
     models = {model["name"]: model for model in client.get("/api/models").json()}
     assert models["naive"]["implemented"] is True
     assert models["naive"]["is_default"] is True
-    assert models["sam2_memory"]["implemented"] is False
+    assert models["sam2_memory"]["implemented"] is True
     assert models["sam2_memory"]["uses_memory"] is True
     assert models["sam2_memory"]["trainable"] is True
 
@@ -109,17 +111,44 @@ def test_listed_videos_include_the_upload(client, sample_video):
     assert [item["id"] for item in listing] == [video_id]
 
 
+class TodoTracker(VideoObjectTracker):
+    """Registered but not written yet: the API must fail fast rather than crash."""
+
+    @classmethod
+    def info(cls) -> TrackerInfo:
+        return TrackerInfo(
+            name="todo_model", description="placeholder tracker", implemented=False
+        )
+
+    def load(self, *, device="auto", checkpoint=None) -> None:  # noqa: ANN001
+        raise NotImplementedError
+
+    def set_video(self, frames) -> None:  # noqa: ANN001
+        raise NotImplementedError
+
+    def add_prompt(self, prompts: PromptSet) -> FrameResult:
+        raise NotImplementedError
+
+    def propagate(self, frame_index: int, direction: Direction) -> FrameResult:
+        raise NotImplementedError
+
+
 # ------------------------------------------------------------------ tracking
 @requires_ffmpeg
-def test_stub_tracker_gives_a_clear_409(client, sample_video):
+def test_unimplemented_tracker_fails_fast_with_a_clear_409(client, monkeypatch, sample_video):
+    # Every shipped tracker is implemented now, so the fail-fast path is covered by
+    # registering a placeholder under an ephemeral key: a half-written plugin must
+    # answer with 409 up front instead of dying on the worker thread.
+    monkeypatch.setitem(registry._OVERRIDES, "todo_model", "test_api:TodoTracker")
+
     video_id = upload_ready(client, sample_video)
     response = client.post(
         f"/api/videos/{video_id}/track",
-        json={"prompts": [PROMPT], "model": "sam2_memory"},
+        json={"prompts": [PROMPT], "model": "todo_model"},
     )
     assert response.status_code == 409
     detail = response.json()["detail"]
-    assert "sam2_memory" in detail and "sam2_memory.py" in detail
+    assert "todo_model" in detail and "sam2_memory.py" in detail
 
 
 def test_unknown_tracker_is_404(client):

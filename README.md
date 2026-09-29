@@ -22,24 +22,107 @@ tightening are this repo's engineering work.
 
 ## Results
 
-**PLACEHOLDER — no J&F number is reported yet.** The memory stack is implemented
-and contract-verified, but a number is only meaningful after a real training run
-on DAVIS/SA-V; inventing one would defeat the point of the project. The table is
-filled in from `rotostream_ml.evaluate`, never by hand.
+Two different questions, two different kinds of evidence. Neither is a substitute
+for the other: parity says the implementation is *correct*, the benchmarks say
+what it *does*.
+
+### 1. Is this actually SAM 2's memory mechanism?
+
+Yes, to the last bit, and one command shows it:
+
+```bash
+.venv/Scripts/python api/scripts/check_parity.py
+```
+
+It loads the released SAM 2.1 weights into this repository's memory stack and runs
+both implementations on identical inputs:
+
+| Comparison | Result |
+| --- | --- |
+| Weight load | 0 missing, 0 unexpected keys |
+| Memory encoder (features, position codes) | `max|diff| 0.000e+00` |
+| Memory attention (conditioned features) | `max|diff| 0.000e+00` |
+
+That is the claim the rest of this README rests on. It is checked, not asserted.
+
+### 2. What quality comes out, and is it leak-free?
+
+Zero-shot — the memory stack above is warm-started from the released weights and
+never fine-tuned — on the synthetic scenarios in `ml/rotostream_ml/synthetic.py`:
+
+```bash
+cd ml && python -m rotostream_ml.evaluate --model sam2_memory --dataset synthetic
+```
+
+| Sequence | Frames | J | F | J&F |
+| --- | --- | --- | --- | --- |
+| color_shift | 24 | 1.0000 | 1.0000 | 1.0000 |
+| distractor | 24 | 1.0000 | 1.0000 | 1.0000 |
+| linear | 24 | 1.0000 | 1.0000 | 1.0000 |
+| reentry | 34 | 1.0000 | 1.0000 | 1.0000 |
+| occlusion | 30 | 0.8000 | 0.8000 | 0.8000 |
+| **mean** | **136** | **0.9600** | **0.9600** | **0.9600** |
+
+Presence head over the same run: accuracy 0.9559, precision 1.0000, recall 0.9520.
+The occlusion sequence is the one that separates a memory tracker from a colour
+matcher, and it is the one where the score drops.
+
+These are synthetic scenes chosen to exercise memory (linear motion, occlusion,
+re-entry, a colour-matched distractor), **not** DAVIS. They are a regression
+signal, not a leaderboard number.
+
+Causality is checked separately, on every scenario in both directions:
+
+```bash
+cd ml && python -m rotostream_ml.leakcheck --model sam2_memory --all
+```
+
+Masks are recomputed with the unvisited frames altered; if any mask changes, the
+run fails. All 5 scenarios pass in both directions.
+
+### 3. DAVIS 2017 val J&F — pending
+
+Deliberately still blank. A DAVIS number is only meaningful after a real training
+run on DAVIS/SA-V, and this checkout has neither the dataset nor a finished run;
+inventing one would defeat the point of the project. Fill this in from
+`rotostream_ml.evaluate`'s own output, never by hand.
 
 | Backbone | DAVIS 2017 val J&F | FPS | Notes |
 | --- | --- | --- | --- |
-| Hiera-T | _pending_ | _pending_ | `--checkpoint runs/davis_val.json` |
+| Hiera-T | _pending_ | _pending_ | `--json runs/davis_val.json` |
 | Hiera-B+ | _pending_ | _pending_ | paper reports 90.2 / 43.8 |
 | Hiera-L | _pending_ | _pending_ | paper reports 90.7 / 30.2 |
 
 Paper reference points (SA-V-trained SAM 2.1, for context only — not targets):
 90.2 J&F on DAVIS 2017 val with Hiera-B+ at 43.8 FPS, 90.7 with Hiera-L at 30.2 FPS.
 
+### 4. Training
+
+`ml/rotostream_ml/train.py` drives the stack through `TrainableTracker`:
+
+```bash
+cd ml
+python -m rotostream_ml.train --model sam2_memory --dry-run   # wiring, 3 steps
+python -m rotostream_ml.train --model sam2_memory --overfit --steps 50
+```
+
+The dry run checks the failure modes that waste a day — no trainable parameters, a
+detached loss, a branch with no gradient — and reports gradients flowing through
+305 tensors (274 of them non-zero). The overfit check fits a single clip and fails
+if the loss did not fall; it takes the mean loss from **0.011446 to 0.000000**, a
+100% drop over 50 steps at lr 1e-4.
+
+Gradient checkpointing is on by default during training (`MemoryStack.set_gradient_checkpointing`):
+a clip is one graph, and the memory encoder's stride-2 pass over a 1024×1024 mask
+is ~0.25 GB of activation *per frame*, which is what makes clip length rather than
+model size decide whether a step fits. Without it a 16-frame step sat at the 6 GB
+ceiling of a laptop RTX 4050 for over ten minutes; with it, steps are ~10-15 s.
+
 ### Ablations (skeleton)
 
 Produced by `python -m rotostream_ml.evaluate` with the corresponding
-`memory_bank_size` / flags. Empty until run.
+`memory_bank_size` / flags. Empty until run — the flags exist
+(`Tracker(memory_bank_size=N)`), the numbers do not.
 
 | Variant | J&F | Δ |
 | --- | --- | --- |
@@ -82,12 +165,14 @@ prompt, propagate, and export in six formats.
 ```bash
 .venv/Scripts/python -m pytest api/tests ml/tests   # contract, API, metrics, harness
 .venv/Scripts/python api/scripts/check_model.py     # per-tracker contract check
+.venv/Scripts/python api/scripts/check_parity.py    # numerical parity vs the released weights
 cd web && pnpm exec tsc --noEmit                    # frontend types
 ```
 
 `check_model.py` prints one line per check and is the fastest loop while working
-on a model; `python -m rotostream_ml.leakcheck --model sam2_memory --all` proves
-the memory bank never reads unvisited frames.
+on a model. `check_parity.py` is the correctness claim from §1 above.
+`python -m rotostream_ml.leakcheck --model sam2_memory --all` proves the memory
+bank never reads unvisited frames.
 
 ---
 
@@ -96,7 +181,8 @@ the memory bank never reads unvisited frames.
 | Piece | Where |
 | --- | --- |
 | Tracker contract (the seam) | `api/app/models/base.py` |
-| Memory stack | `api/app/models/sam2_memory.py` |
+| Memory stack | `api/app/models/sam2_stack/` (modules, decoder, bank, losses) |
+| Tracker glue (contract + training step) | `api/app/models/sam2_memory.py` |
 | Reference baseline (no memory) | `api/app/models/naive.py` |
 | HTTP API, storage, jobs, ffmpeg | `api/app/` |
 | Evaluation + training harness | `ml/rotostream_ml/` |

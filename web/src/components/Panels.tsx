@@ -181,14 +181,26 @@ export function TrackPanel({
           </Select>
         </Field>
 
+        {selected?.implemented && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selected.uses_memory && <Badge tone="accent">memory</Badge>}
+            {selected.trainable && <Badge>trainable</Badge>}
+            {selected.checkpoint_hint && (
+              <span className="font-mono text-[10px] text-ink-400">{selected.checkpoint_hint}</span>
+            )}
+          </div>
+        )}
+
         {selected && !selected.implemented && (
           <p className="flex items-start gap-1.5 rounded-md border border-warn/30 bg-warn/10 px-2.5 py-2 text-[11px] leading-snug text-warn">
             <AlertIcon className="mt-px h-3.5 w-3.5 shrink-0" />
             <span>
-              <strong className="font-semibold">{selected.name}</strong> is still a stub. Implement
-              it in <code className="font-mono">api/app/models/sam2_memory.py</code>, then flip{" "}
-              <code className="font-mono">implemented=True</code> in its{" "}
-              <code className="font-mono">info()</code>.
+              <strong className="font-semibold">{selected.name}</strong>{" "}
+              {selected.error
+                ? `is unavailable (${selected.error}).`
+                : "is registered but not implemented yet."}{" "}
+              The contract is in <code className="font-mono">api/app/models/base.py</code> and{" "}
+              <code className="font-mono">docs/MODEL_CONTRACT.md</code>.
             </span>
           </p>
         )}

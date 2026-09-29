@@ -86,6 +86,30 @@ class TinyThresholdTracker(TrainableTracker):
         return {"loss": loss, "mean_logit": logits.mean()}
 
 
+class UnwrittenTracker(TrainableTracker):
+    """Present in the registry, not built yet: the harness must surface the refusal."""
+
+    key = "unwritten"
+
+    def load(self, *, device="auto", checkpoint=None) -> None:  # noqa: ANN001
+        raise NotImplementedError("there is no implementation behind this tracker")
+
+    def set_video(self, frames) -> None:  # noqa: ANN001
+        raise NotImplementedError
+
+    def add_prompt(self, prompts: PromptSet) -> FrameResult:
+        raise NotImplementedError
+
+    def propagate(self, frame_index: int, direction: Direction) -> FrameResult:
+        raise NotImplementedError
+
+    def trainable_parameters(self):
+        return []
+
+    def training_step(self, sequence: TrainingSequence) -> dict:
+        raise NotImplementedError
+
+
 class FrozenTracker(TrainableTracker):
     """Trainable in name only: no parameters, so the trainer must refuse it."""
 
@@ -210,10 +234,10 @@ def test_dry_run_passes_for_a_working_model():
 
 
 def test_dry_run_defers_to_the_tracker_when_it_is_not_implemented():
-    from app.models.sam2_memory import MemoryAttentionTracker
-
-    with pytest.raises(NotImplementedError):
-        dry_run(MemoryAttentionTracker(), SequenceDataset(_sequences(), _config()), _config())
+    # A registered-but-unwritten tracker raises from load(); the dry run must let
+    # that message through instead of failing later with a confusing shape error.
+    with pytest.raises(NotImplementedError, match="no implementation behind"):
+        dry_run(UnwrittenTracker(), SequenceDataset(_sequences(), _config()), _config())
 
 
 # ------------------------------------------------------------------ overfit

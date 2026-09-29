@@ -1,7 +1,8 @@
 # HANDOFF
 
 **Read this first.** Written for an AI agent or human picking this repo up cold.
-Last updated at the end of the scaffolding session that built the API.
+Last updated after the session that implemented the memory stack and finished the
+frontend, the ML harness and the docs.
 
 ---
 
@@ -11,14 +12,24 @@ Last updated at the end of the scaffolding session that built the API.
 and the tracker propagates a mask across every frame, then exports an alpha matte /
 transparent video / replaced background.
 
-The interesting part is deliberately *not* finished: the user is implementing the
-**SAM 2 memory-attention tracker from scratch themselves** and does not want help
-with the model internals. Everything around it — contract, API, storage, ffmpeg,
-jobs, UI, tests, evaluation — is this repo's job.
+The engineering claim is the split between **reused** and **built**, and it is worth
+stating precisely because it is the first question anyone asks:
 
-> **The one rule: do not implement the model.** Do not write `_memory_attention`,
-> the memory encoder, the mask decoder or the occlusion head. The user owns
-> `api/app/models/sam2_memory.py`. Everything else is fair game.
+| Reused | Built here, from scratch |
+| --- | --- |
+| The Hiera image encoder (frozen, pretrained) | Memory encoder (mask → memory map) |
+| The released SAM 2.1 weights, as a warm start | Bounded, directional memory bank |
+| The `Sam2VideoConfig` that defines the architecture | Memory attention: 2D axial RoPE, object pointers |
+| The tracker plugin contract | Two-way mask decoder + occlusion/presence head |
+| | The training objective, the harness, the API, the UI |
+
+The memory stack is **not** a wrapper around `Sam2VideoModel`. It is a separate
+implementation that loads the released weights key-for-key and reproduces the
+reference numbers bit-exactly — verified by `api/scripts/check_parity.py`, which is
+the single most useful command in this repo (see §6).
+
+Everything else — contract, API, storage, ffmpeg, jobs, UI, tests, evaluation — is
+this repo's own work.
 
 ---
 
@@ -30,16 +41,17 @@ jobs, UI, tests, evaluation — is this repo's job.
 | Model plugin contract (`api/app/models/base.py`) | **done** |
 | Plugin registry (builtin + entry points + env) | **done** |
 | Reference baseline tracker (`naive.py`) | **done** |
-| User's model stub (`sam2_memory.py`) | **done** (raises `NotImplementedError` by design) |
+| **Memory-attention tracker (`sam2_memory.py` + `sam2_stack/`)** | **done**, `implemented=True` |
 | API core: settings, storage, masks, ffmpeg, jobs, pipeline | **done** |
 | HTTP routers (health, models, videos, tracking, exports) | **done** |
-| Test suite (57 tests) + `check_model.py` | **done** — all green |
-| **Next.js frontend (`web/`)** | **NOT STARTED** |
-| **ML harness (`ml/`: DAVIS, J&F, train, evaluate, synthetic)** | **NOT STARTED** |
-| Docs (`README.md`, `docs/MODEL_CONTRACT.md`, `docs/ARCHITECTURE.md`) | **NOT STARTED** |
+| Test suite (`api/tests` + `ml/tests`) | **done** — 205 passed, 1 xfailed |
+| Next.js frontend (`web/`) | **done** |
+| ML harness (`ml/`: DAVIS, J&F, train, evaluate, synthetic, leakcheck) | **done** |
+| Docs (`README.md`, `docs/MODEL_CONTRACT.md`, `docs/ARCHITECTURE.md`) | **done** |
+| CI (`.github/workflows/ci.yml`: pytest + `tsc --noEmit`) | **done** |
 
-Verified at handoff: `56 passed, 1 xfailed` on `api/tests`, and
-`check_model.py` reports `8 passed, 0 failed` for `naive`.
+Verified numbers from the last full pass are in §6, including the residual gaps
+(no DAVIS J&F yet — see §9).
 
 ---
 
@@ -48,10 +60,16 @@ Verified at handoff: `56 passed, 1 xfailed` on `api/tests`, and
 ```
 rotostream/
   HANDOFF.md              <- you are here
+  README.md               reused-vs-built framing, quickstart, results
+  docs/
+    MODEL_CONTRACT.md     the model author's reference (contract + memory maths)
+    ARCHITECTURE.md       request lifecycle, file:line pointers, storage layout
   package.json            root scripts (dev launcher)
   scripts/dev.mjs         runs API + web together, prefixed logs, one Ctrl-C
   pytest.ini              testpaths = api/tests ml/tests
-  .env.example            every env var, ROTOSTREAM_ prefixed
+  web/.env.example        NEXT_PUBLIC_API_BASE_URL for the browser
+  .env.example            every server env var, ROTOSTREAM_ prefixed
+  .github/workflows/ci.yml
   .venv/                  Python venv, --system-site-packages (see §7)
   api/
     app/
@@ -69,11 +87,24 @@ rotostream/
         frames.py         FrameSource: ArrayFrameSource, DirectoryFrameSource
         registry.py       plugin discovery (builtin / entry points / env)
         naive.py          reference baseline (memory-free, on purpose)
-        sam2_memory.py    *** THE USER'S MODEL — stub, do not implement ***
+        sam2_memory.py    the tracker: contract glue + inference + training step
+        sam2_stack/       *** THE MODEL *** the from-scratch memory stack
+          backbone.py       frozen Hiera wrapper, resize/normalise frames
+          modules.py        prompt encoder, RoPE attention, memory encoder/attention
+          mask_decoder.py   two-way transformer + mask/IoU/presence heads
+          model.py          MemoryBank (directional gather) + MemoryStack assembly
+          losses.py         focal + dice + IoU-L1 + presence CE
       routers/            health, models, videos, tracking, exports
-    scripts/check_model.py   standalone contract verification tool
+    scripts/
+      check_model.py      standalone contract verification tool
+      check_parity.py     numerical parity vs the released SAM 2.1 modules
     tests/                contract, naive, video, api + synthetic.py fixtures
-  ml/                     training/eval harness (NOT STARTED)
+  ml/
+    requirements.txt
+    rotostream_ml/        davis, evaluate, leakcheck, metrics, sequences,
+                          synthetic, train
+    tests/                davis, evaluate, leakcheck, metrics, synthetic, train
+  web/                    Next.js app: Studio, FrameStage, Timeline, Panels, Rail
 ```
 
 ---
@@ -103,8 +134,13 @@ Hard rules the app relies on:
 3. **`propagate` must only attend to already-visited frames.** `FORWARD` may use
    indices `< frame_index`; `BACKWARD` may use `> frame_index`. Reading the
    unvisited side is future leakage and inflates benchmark numbers. This is
-   enforced by `test_no_future_leakage_forward` / `_backward` and by
-   `check_model.py`.
+   enforced by `test_no_future_leakage_forward` / `_backward`,
+   `check_model.py`, and independently by `rotostream_ml.leakcheck`.
+
+   **This is a deliberate deviation from the paper**, which reads memory
+   bidirectionally. Do not "fix" it to match the paper: the whole point of this
+   repo is a tracker you cannot cheat with, and an offline bidirectional pass
+   would use frames that an interactive session does not have yet.
 4. Masks are `(H, W) bool` at **`FrameSource` resolution** (working resolution),
    not at the encoder's internal resolution.
 5. `object_present=False` requires an all-`False` mask.
@@ -113,6 +149,12 @@ The step planner in `pipeline.py::build_plan` orders prompts and propagations so
 rule 3 holds across multiple prompts: `prompt(p1) → propagate to p2-1 → prompt(p2)
 → … → propagate to the end → propagate backwards from p1-1 to 0`.
 
+**Inference runs under `torch.no_grad()`** (`sam2_memory._inference` wraps
+`add_prompt` / `propagate`). Only `training_step` builds a graph. This is not a
+micro-optimisation: the bank stores tensors derived from decoder outputs, so an
+un-detached graph is pinned by the bank and grows with the clip until the process
+dies. See §7.
+
 ---
 
 ## 5. Run it
@@ -120,7 +162,7 @@ rule 3 holds across multiple prompts: `prompt(p1) → propagate to p2-1 → prom
 ```bash
 # one-time (already done in this checkout, but for a fresh clone):
 python -m venv .venv --system-site-packages
-.venv/Scripts/python -m pip install -r api/requirements.txt
+.venv/Scripts/python -m pip install -r api/requirements.txt -r ml/requirements.txt
 
 # both servers, prefixed logs, Ctrl-C stops both
 pnpm dev                       # or: node scripts/dev.mjs
@@ -139,13 +181,55 @@ cd api && ../.venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 
 ## 6. Verify it
 
+Fast, and no model weights involved:
+
 ```bash
-.venv/Scripts/python -m pytest api/tests           # 56 passed, 1 xfailed
-.venv/Scripts/python api/scripts/check_model.py    # contract check, per tracker
+.venv/Scripts/python -m pytest api/tests ml/tests   # 205 passed, 1 xfailed
+cd web && pnpm exec tsc --noEmit
 ```
 
-`check_model.py <key>` is the fastest loop while iterating on a model — it prints
-one line per check and pinpoints leakage.
+Then, in increasing order of cost. **This is the intended reading order** — each
+step fails differently, so a failure localises the problem.
+
+```bash
+# 1. Contract: shapes, dtypes, reset, leakage. ~2 min on CPU.
+.venv/Scripts/python api/scripts/check_model.py sam2_memory
+
+# 2. Numerical parity against the released SAM 2.1 modules. ~1 min on CPU.
+.venv/Scripts/python api/scripts/check_parity.py
+
+# 3. Causality, scenario by scenario. ~5 min on a GPU with --max-checks 3.
+cd ml && ../.venv/Scripts/python -m rotostream_ml.leakcheck \
+    --model sam2_memory --all --device cuda --max-checks 3
+
+# 4. End-to-end quality on the synthetic benchmarks. ~1 min on a GPU.
+cd ml && ../.venv/Scripts/python -m rotostream_ml.evaluate \
+    --model sam2_memory --dataset synthetic --device cuda
+```
+
+Last recorded output:
+
+| Check | Result |
+| --- | --- |
+| `pytest api/tests ml/tests` | 205 passed, 1 xfailed |
+| `check_model.py sam2_memory` | 8 passed, 0 failed, 0 skipped |
+| `check_parity.py` | 0 missing / 0 unexpected keys; encoder features, position codes and attention output all `max|diff| 0.000e+00` |
+| `leakcheck --all --max-checks 3` | 5 scenarios × 2 directions, all PASS |
+| `evaluate --dataset synthetic` | mean **J&F 0.96** over 5 sequences / 136 frames (color_shift, distractor, linear, reentry 1.0000; occlusion 0.8000) |
+| `train --dry-run` | PASS — loss 0.0424, gradients through 305 tensors, 274 non-zero |
+
+Training (needs a GPU; see §7 for the memory story):
+
+```bash
+cd ml
+../.venv/Scripts/python -m rotostream_ml.train --model sam2_memory --dry-run --device cuda
+../.venv/Scripts/python -m rotostream_ml.train --model sam2_memory --overfit --steps 50 --device cuda
+../.venv/Scripts/python -m rotostream_ml.train --model sam2_memory --steps 200 \
+    --checkpoint-dir runs/train --device cuda
+```
+
+The smoke test against a *running* server (uploads a clip, tracks, exports) is
+`api/scripts/smoke.py`.
 
 ---
 
@@ -156,6 +240,10 @@ one line per check and pinpoints leakage.
   `scipy` come from the *global* Python 3.13 install, which is intentional so a
   2.5 GB torch download is avoided. `api/requirements.txt` uses loose `>=` bounds
   for the same reason — do not tighten them to exact pins.
+- **`transformers>=4.57` is required *only* by `sam2_memory`.** It supplies
+  `Sam2VideoConfig` (which defines the architecture) and `Sam2VisionModel` (the
+  frozen encoder). It is imported lazily inside the tracker, so the API, the naive
+  tracker and every endpoint work without it.
 - **ffmpeg 7.1.1 must be on PATH.** `/api/health` reports `ffmpeg: true|false`.
   Tests that need it are marked `@requires_ffmpeg` and skip cleanly.
 - **Sharp edge: `python - <<'PY'` plus any multiprocessing/spawn worker recurses
@@ -172,6 +260,41 @@ one line per check and pinpoints leakage.
   using the same global Python. Its `gradio` is pinned `<6` because the global
   env has `anyio 3.7.1`. Do not upgrade `anyio` globally without checking it.
 
+### Sharp edges specific to the model
+
+These all cost real debugging time. They are recorded because every one of them is
+easy to reintroduce.
+
+- **Shape mismatch: the reference is sequence-first, the built stack is
+  batch-first.** `Sam2VideoMemoryAttention` takes `(seq, batch, ch)`; our
+  `MemoryAttention` takes `(batch, seq, C)`. Feeding the wrong one does not raise
+  a clean error — the reference's key-side RoPE repeat computes
+  `repeat_factor = k_len // q_len`, so a wrong layout multiplies the cos/sin table
+  into a 16 GB tensor and the machine dies. **This has already taken this PC down
+  once.** Compare tensors with `check_parity.py`, which transposes explicitly.
+- **Attention must not be materialised.** With a full bank (6 recent + 1 prompted
+  frame, 4096 tokens each) an explicit `q @ k.T` is ~3 GB *per layer* in float32.
+  `RoPEAttention` uses `F.scaled_dot_product_attention`, which is also what makes
+  the output bit-exact against the reference.
+- **Inference must not build a graph** (see §4). The bank keeps frame features,
+  position codes and pointers alive, so an un-detached graph across a clip is a
+  slow leak; the failure mode is a segfault, not a Python exception.
+- **Training needs gradient checkpointing to fit on a consumer GPU.**
+  `MemoryStack.set_gradient_checkpointing(True)`, enabled by
+  `training_step`, recomputes activations in the backward pass. The activation
+  hog is the memory encoder's stride-2 conv on a 1024×1024 mask (512×512×256 per
+  frame). Without it, a 16-frame training step sat pinned at the 6 GB ceiling for
+  well over ten minutes on an RTX 4050 and thrashed the machine; with it, a step
+  is ~10-15 s and a 50-step overfit completes.
+- **`trainable_parameters()` / `state_dict()` / `training_step()` must not require
+  `set_video()`.** The harness asks for parameters immediately after `load()`. The
+  readiness check is split into `_require_loaded()` (weights exist) and
+  `_require_ready()` (weights + a video; inference only).
+- **`training_step` returns only scalar loggable tensors.** The harness logs every
+  value in the returned dict as a scalar, so the chosen-mask index stays out of
+  `to_dict()` — averaging an index is meaningless and `mean()` on a Long tensor
+  raises.
+
 ---
 
 ## 8. Commit conventions
@@ -187,72 +310,45 @@ Per the repository owner, **explicitly requested**:
 
 ## 9. Remaining work, in priority order
 
-### 9.1 Frontend — `web/` (Next.js latest + TypeScript + Tailwind)
+### 9.1 The DAVIS number — the one real gap
 
-Not started. Suggested plan:
+`README.md` reports synthetic J&F only, because a DAVIS number is only meaningful
+after a real training run and there is no DAVIS data in this checkout. To close it:
 
-- Scaffold with
-  `pnpm dlx create-next-app@latest web --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-pnpm --disable-git --empty`
-  (the `create-next-app` flags were verified against the installed version).
-- `NEXT_PUBLIC_API_BASE_URL` (see `.env.example`) points at the API.
-- Screens: video dropzone + project list → studio. In the studio: frame canvas with
-  click-to-prompt (left click = positive, alt/shift = negative), mask overlay,
-  timeline scrubber, mask-ratio/score sparkline, model picker from `GET /api/models`,
-  export panel, memory-bank inspector from `SessionOut.memory`.
-- Endpoints to wire (all under `/api`, see `http://127.0.0.1:8000/docs`):
-  `POST /videos` (multipart) → poll the returned `job_id`; `GET /videos/{id}/frames/{i}`;
-  `POST /videos/{id}/preview` (returns an **overlay PNG**, stats in `X-Mask-Area` /
-  `X-Mask-Ratio` headers — CORS already exposes them); `POST /videos/{id}/track` →
-  `GET /jobs/{id}/events` for SSE progress; `GET /videos/{id}/overlays/{i}`;
-  `POST /videos/{id}/exports` → `GET /videos/{id}/exports/{eid}/download`.
-- Overlays are rendered server-side as RGBA PNGs, so the canvas can just stack an
-  `<img>` — no per-pixel client work needed.
-- Pass `session_id` explicitly on overlay requests to get `immutable` caching, which
-  is what makes scrubbing cheap.
+```bash
+python -m rotostream_ml.evaluate --model sam2_memory --dataset davis \
+    --root <path/to/DAVIS> --split val --device cuda --json runs/davis_val.json
+```
 
-### 9.2 ML harness — `ml/`
+Then paste the printed J&F into the README table (never by hand — copy the
+command's output) and fill the ablation skeleton beside it with
+`memory_bank_size` variants. Until then the README says *pending* on purpose.
 
-Not started. The user wants a defensible J&F number on DAVIS, so build:
+### 9.2 Sample media
 
-- `ml/rotostream_ml/data/davis.py` — DAVIS 2017 download/loader returning sequences
-  whose shapes match `TrainingSequence` (`frames (T,H,W,3) uint8`,
-  `gt_masks (T,H,W) bool`, `prompts`).
-- `ml/rotostream_ml/data/synthetic.py` — richer sibling of
-  `api/tests/synthetic.py`: motion, occlusion, re-entry, with ground truth. The user
-  explicitly asked for toy sequences to debug the memory module before real footage.
-- `ml/rotostream_ml/metrics/jf.py` — region similarity **J**, boundary **F**, and
-  **J&F**, matching the DAVIS protocol.
-- `ml/rotostream_ml/evaluate.py` — CLI: `--tracker sam2_memory --dataset
-  {synthetic,davis} --split val`, runs the plugin via the same registry, prints J/F/J&F.
-  Must go through the contract, not a bespoke inference path.
-- `ml/rotostream_ml/train.py` — harness that drives `TrainableTracker
-  .trainable_parameters()` and `.training_step(TrainingSequence)`, owning the
-  optimizer, schedule, checkpointing and logging. It must **not** reach into the
-  user's model internals.
-- `ml/tests/test_jf.py` — verify J/F against hand-computed tensors (the metric is the
-  thing most likely to be silently wrong, and it is the number the user will quote).
+There is no clip in the repo, so the frontend needs a video before it shows
+anything interesting. A tiny committed clip (a few hundred KB) would make the
+demo reproducible for a reviewer.
 
-Duplicate-ish note: `api/tests/synthetic.py` and `ml/.../synthetic.py` intentionally
-overlap a little. Keeping the API test fixtures independent is worth the small
-duplication — do not make `api/` depend on `ml/`.
+### 9.3 `SessionOut.scores` payload
 
-### 9.3 Docs
+`scores` returns one entry per frame; a 900-frame session is a large payload.
+The frontend's `Timeline` consumes it, so **do not change the default** without
+updating `web/src/components/Timeline.tsx` in the same commit. The intended fix is
+a `?include_scores=false` default plus a dedicated scores endpoint.
 
-- `README.md` — must frame **reused vs built** honestly, in the user's own terms:
-  frozen pretrained image encoder reused; memory encoder, memory bank, memory
-  attention, mask decoder and occlusion head built from scratch. Report the J&F
-  numbers once `ml/` exists.
-- `docs/MODEL_CONTRACT.md` — expand §4 above; the model author's single reference.
-- `docs/ARCHITECTURE.md` — request lifecycle: upload → extract → prompt → track →
-  overlay → export, and where each piece lives.
+### 9.4 Mask-ratio sparkline
 
-### 9.4 Smaller gaps worth closing
+Deliberately not built. The API stores per-frame masks (fetchable as PNG) but
+exposes no per-frame area series, so a sparkline would mean either N mask fetches
+per session or a new aggregate field. `FrameResult.extras` is the natural place to
+carry `mask_ratio` per frame if it is ever wanted — check whether anything reads
+`extras` before changing its contents.
 
-- No sample media in the repo. A tiny committed clip would make the frontend
-  developable without hunting for a video.
-- No CI. A `pytest` + `tsc --noEmit` workflow would be cheap and valuable.
-- `SessionOut.scores` returns every frame; a 900-frame session is a large payload.
-  Consider a `?include_scores=false` default with a separate scores endpoint.
+### 9.5 Multi-object sessions
+
+One tracked object per session today; multiple objects would need per-object memory
+banks. Multiple sessions per video cover the current brief.
 
 ---
 
@@ -273,3 +369,14 @@ duplication — do not make `api/` depend on `ml/`.
   calls `reset()` + `add_prompt` per click. Loading weights on every click would be
   unusable for a real model.
 - **Line endings normalised to LF** so the Windows checkout does not churn.
+- **The released weights are a warm start, not a crutch.** `MemoryStack.load_reference_weights`
+  loads them because it is the only way to *prove* the architecture matches; the
+  training harness then trains the memory stack on top. `reference_weights=False`
+  builds a randomly initialised stack with the same shape, which is what the
+  training entry point can use to prove the loop learns rather than remembers.
+- **Numerical parity is a test, not a vibe.** `check_parity.py` is kept in the repo
+  because "I reimplemented SAM 2's memory modules" is a claim that should be
+  falsifiable in one command.
+- **The directional-memory deviation stands.** See §4 rule 3. It is enforced by
+  three independent checks and is the reason the project is about *leak-free*
+  tracking rather than another mask quality number.

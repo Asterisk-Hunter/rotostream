@@ -252,6 +252,43 @@ implementing against them.
    the bank runs at 256. A 256-wide bank would be a different (and wrong) memory
    design.
 
+### 5.1 Corrections that only surfaced while implementing
+
+These are not in the stub — they were found by running the thing against the
+reference. Each one is easy to reintroduce, and each one wasted real time.
+
+1. **The reference memory path is sequence-first `(seq, batch, ch)`; this stack is
+   batch-first `(batch, seq, C)`.** Getting it wrong does not produce a clean
+   error. The reference's key-side RoPE repeat computes
+   `repeat_factor = k_len // q_len`, so a transposed argument multiplies the
+   cos/sin table into a **16 GB** tensor. This crashed the development machine.
+   `api/scripts/check_parity.py` transposes explicitly for this reason.
+2. **Inference must run under `torch.no_grad()`.** The bank stores features,
+   position codes and pointers derived from decoder outputs, so an un-detached
+   autograd graph is pinned by the bank and grows with the clip. The symptom is an
+   access violation, not a Python exception. `sam2_memory._inference` wraps
+   `add_prompt`/`propagate`; only `training_step` builds a graph.
+3. **Attention must not be materialised.** With a full bank (6 recent + prompted,
+   4096 tokens each) an explicit `q @ k.T` is ~3 GB *per layer* in float32.
+   `RoPEAttention` uses `F.scaled_dot_product_attention`, which is both smaller and
+   bit-exact against the reference's eager path on CPU float32.
+4. **Training needs gradient checkpointing to fit a consumer GPU.** A clip is one
+   graph, and the memory encoder's stride-2 pass over a 1024x1024 mask is ~0.25 GB
+   of activation per frame. `MemoryStack.set_gradient_checkpointing(True)`
+   (enabled by `training_step`) trades ~2x compute for that memory; without it a
+   16-frame step sat pinned at the 6 GB ceiling.
+5. **`trainable_parameters()` / `state_dict()` / `training_step()` must not
+   require `set_video()`.** The harness asks for parameters immediately after
+   `load()`. Readiness is split into `_require_loaded()` (weights exist) and
+   `_require_ready()` (weights + video; inference only).
+6. **`training_step` must return only scalar loggable tensors.** The harness logs
+   every value in the returned dict as a scalar metric, so the chosen-mask index
+   stays out of `Sam2LossBreakdown.to_dict()`.
+7. **The candidate-mask terms reduce over space only.** `sigmoid_focal_loss` and
+   `dice_loss` keep their leading dims, so a `(T, K, h, w)` input yields `(T, K)`.
+   Reducing over everything collapses the frame axis and the argmin that picks the
+   supervised mask then fails.
+
 ---
 
 ## 6. Losses and training recipe (§D.2.2 of the paper)
@@ -305,9 +342,19 @@ positional embedding and object pointers.
 Run these in order. Each one is cheaper than the next and catches a different
 class of bug.
 
+0. **`python api/scripts/check_parity.py`** — the correctness gate, and the reason
+   the rest of the list is worth running at all. It loads the released SAM 2.1
+   weights into the built memory stack (0 missing / 0 unexpected keys) and compares
+   the memory encoder and memory attention against the reference modules on
+   identical inputs. A large difference here means the implementation is not the
+   architecture, and no benchmark number will save it. Recorded: encoder features,
+   encoder position codes and attention output all `max|diff| 0.000e+00`.
 1. **`python api/scripts/check_model.py sam2_memory`** — contract only: shapes,
    dtype, forward/backward propagation, `reset`, the future-leakage probes, and
    `object_present=False => empty mask`. The fastest loop while iterating.
+   Recorded: `8 passed, 0 failed, 0 skipped`.
+   (`leakcheck --all` is the slowest of these — it re-runs the tracker twice per
+   probe. On CPU, bound it with `--max-checks 3` or it will outlive the session.)
 2. **`python -m rotostream_ml.leakcheck --model sam2_memory --all`** (from `ml/`) —
    the strong causality proof: poison every unvisited frame with noise and demand
    the mask at the probe frame is unchanged. Run this before trusting *any* number.
@@ -325,6 +372,17 @@ class of bug.
 
 `check_model.py` prints one line per check. For a stub it reports `SKIP` rather
 than a pass — never treat a skip as a green light.
+
+Last full pass, in this order:
+
+| Step | Result |
+| --- | --- |
+| 0 `check_parity.py` | all three comparisons `0.000e+00`, 0/0 keys |
+| 1 `check_model.py sam2_memory` | 8 passed, 0 failed, 0 skipped |
+| 2 `leakcheck --all --max-checks 3` | 5 scenarios x 2 directions, all PASS |
+| 3 `evaluate --dataset synthetic` | mean J&F 0.9600 over 136 frames |
+| 4 `train --dry-run` | PASS, gradients through 305 tensors |
+| 4 `train --overfit --steps 50` | PASS: mean loss 0.011446 -> 0.000000 (fell 100%) |
 
 ---
 
