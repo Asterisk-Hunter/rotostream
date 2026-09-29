@@ -213,7 +213,7 @@ Last recorded output:
 | --- | --- |
 | `pytest api/tests ml/tests` | 205 passed, 1 xfailed |
 | `check_model.py sam2_memory` | 8 passed, 0 failed, 0 skipped |
-| `check_parity.py` | 0 missing / 0 unexpected keys; encoder features, position codes and attention output all `max|diff| 0.000e+00` |
+| `check_parity.py` | 0 missing / 0 unexpected keys; encoder features, position codes and attention output all max abs diff `0.000e+00` |
 | `leakcheck --all --max-checks 3` | 5 scenarios × 2 directions, all PASS |
 | `evaluate --dataset synthetic` | mean **J&F 0.96** over 5 sequences / 136 frames (color_shift, distractor, linear, reentry 1.0000; occlusion 0.8000) |
 | `train --dry-run` | PASS — loss 0.0424, gradients through 305 tensors, 274 non-zero |

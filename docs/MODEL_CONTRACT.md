@@ -348,7 +348,7 @@ class of bug.
    the memory encoder and memory attention against the reference modules on
    identical inputs. A large difference here means the implementation is not the
    architecture, and no benchmark number will save it. Recorded: encoder features,
-   encoder position codes and attention output all `max|diff| 0.000e+00`.
+   encoder position codes and attention output all agree to max abs diff `0.000e+00`.
 1. **`python api/scripts/check_model.py sam2_memory`** — contract only: shapes,
    dtype, forward/backward propagation, `reset`, the future-leakage probes, and
    `object_present=False => empty mask`. The fastest loop while iterating.

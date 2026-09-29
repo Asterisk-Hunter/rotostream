@@ -40,8 +40,8 @@ both implementations on identical inputs:
 | Comparison | Result |
 | --- | --- |
 | Weight load | 0 missing, 0 unexpected keys |
-| Memory encoder (features, position codes) | `max|diff| 0.000e+00` |
-| Memory attention (conditioned features) | `max|diff| 0.000e+00` |
+| Memory encoder (features, position codes) | max abs diff `0.000e+00` |
+| Memory attention (conditioned features) | max abs diff `0.000e+00` |
 
 That is the claim the rest of this README rests on. It is checked, not asserted.
 
