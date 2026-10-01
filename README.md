@@ -212,6 +212,7 @@ click-then-propagate behaviour a user actually gets. The rule is enforced by
 
 - [`docs/MODEL_CONTRACT.md`](docs/MODEL_CONTRACT.md) — the model author's reference: contract rules, shapes, the memory-stack spec, the three correctness corrections, and the verification order.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — request lifecycle (upload → extract → prompt → propagate → overlay → export), disk layout, jobs and the leak-free step planner.
+- [`docs/ASSESSMENT.md`](docs/ASSESSMENT.md) — candid read of what this repository proves, what is missing, where it is weak, and what to do next. Start here if you want the honest version.
 
 ## License
 
