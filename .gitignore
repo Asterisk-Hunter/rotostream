@@ -15,6 +15,8 @@ out/
 .turbo/
 *.tsbuildinfo
 next-env.d.ts
+# This workspace uses pnpm (see pnpm-workspace.yaml); an npm lockfile is stray.
+package-lock.json
 
 # ---- Env ----
 .env
@@ -31,6 +33,9 @@ datasets/
 *.pt
 *.ckpt
 checkpoints/
+
+# ---- Generated video output (brag compositions, renders) ----
+brag-output/
 
 # ---- OS / editor ----
 .DS_Store
