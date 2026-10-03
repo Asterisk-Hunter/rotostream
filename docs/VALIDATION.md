@@ -23,6 +23,9 @@ The completed Linux run for implementation commit `7e0ac45` is
 The latest branch CI should also be green before deployment. Subsequent prompt
 error wording and causality CLI precision changes passed their focused API,
 baseline and leakcheck tests; the neural CLI was executed with the recorded flags.
+The final memory-storage regression compares 100-frame forward and backward sweeps
+against an unpruned bank, including current-frame retries, while enforcing the
+retained-history bound. Prompted anchors remain intact.
 
 ## Browser workflow
 

@@ -58,8 +58,9 @@ class StackCaches:
 class MemoryBank:
     """Two FIFO queues over the frame history, queried **directionally**.
 
-    ``recent`` holds the last ``num_maskmem - 1`` tracked frames; ``prompted``
-    holds every user-prompted frame. Prompted frames are never evicted by the
+    Attention selects ``num_maskmem - 1`` recent tracked frames. Storage keeps
+    one extra current frame for retries; conditioning retains every user-prompted
+    frame. Prompted frames are never evicted by the
     recent-frame budget -- a click is the strongest signal available and dropping
     it would undo the user's correction.
 
@@ -83,7 +84,14 @@ class MemoryBank:
         self._slots.clear()
 
     def store(self, slot: MemorySlot) -> None:
+        # Replacing a retried frame counts as its latest visit. Keep the current
+        # frame plus the attended history so repeating that frame still sees the
+        # same predecessors; prompted frames remain conditioning anchors.
+        self._slots.pop(slot.frame_index, None)
         self._slots[slot.frame_index] = slot
+        recent = [index for index, value in self._slots.items() if not value.conditioning]
+        for index in recent[:-max(1, self.num_maskmem)]:
+            del self._slots[index]
 
     def get(self, frame_index: int) -> Optional[MemorySlot]:
         return self._slots.get(frame_index)

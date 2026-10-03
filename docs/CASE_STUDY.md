@@ -70,6 +70,9 @@ backups, restore and the one-worker deployment constraint.
 - The encoder freeze boundary also blocked decoder skip-projection gradients.
   The freeze now covers only Hiera; regression tests establish that decoder
   projections receive gradients and encoder parameters do not.
+- Attention selected a bounded history, but the bank retained old frame tensors.
+  Storage now releases unused non-prompted memory while keeping conditioning
+  anchors and current-frame retry history. Long sweeps match an unpruned bank.
 
 ## Evidence and practical limits
 

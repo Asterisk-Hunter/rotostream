@@ -17,7 +17,7 @@ Hiera encoder and released SAM 2.1 weights. This is a reproduction.
 | Color baseline, same quality protocol | 13.84 J&F |
 | Neural propagation, float32, RTX 4050 Laptop GPU | 2.88 FPS, excluding initialization, prompts and scoring |
 | Module parity | All checks within 1e-5; memory attention maximum difference 7.153e-7 |
-| Python suite | 258 passed, 1 expected failure |
+| Python suite | 260 passed, 1 expected failure (including long-sweep memory regressions) |
 | Frontend | 13 tests passed; lint, types and production build passed |
 | Native HTTP smoke | 73 checks passed, including SSE and six exports |
 | Training dry run | Three backward passes; finite loss, 272/305 trainable tensors with nonzero gradients |

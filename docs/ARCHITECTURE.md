@@ -30,6 +30,9 @@ One executor worker, 16 pending jobs and 200 terminal history records are the
 defaults. History trimming preserves active work. Preview and background jobs
 share one compute gate. The cache defaults to one warm tracker and is cleared
 before tracking loads its own model. Cancellation is cooperative between operations.
+The neural bank releases non-prompted frames outside its recent history, retaining
+the current frame for retries and prompted conditioning anchors. Ordinary retained
+history therefore stays constant as the clip grows.
 
 IDs and artifact basenames are validated before path construction. JSON uses
 unique temporary files, atomic replacement and a metadata lock. Media uses private

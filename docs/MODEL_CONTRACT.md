@@ -157,8 +157,10 @@ its own eight-head two-way transformer.
 
 ### 3.3 Memory bank
 
-- **Two FIFO queues**: up to `N` recent frames, and up to `M` prompted frames.
-  `memory_bank_size` (default 6) is the recent-frame budget.
+- **Recent-frame window and retained conditioning anchors.**
+  `memory_bank_size` (default 6) is the attended recent-frame budget. Storage keeps
+  the current frame plus that budget so retrying the current frame sees the same
+  predecessors. Older non-prompted tensors are released; prompted anchors remain.
 - Both queues store spatial feature maps, not raw frames.
 - Temporal position information is embedded into the `N` recent memories (short-term
   motion) and **not** into the prompted memories — the prompted frames are sparser,

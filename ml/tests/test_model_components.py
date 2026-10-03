@@ -33,6 +33,27 @@ def test_pointer_chunks_and_positions_share_object_order():
     assert torch.equal(got, torch.arange(512).float().reshape(8, 64))
 
 
+@pytest.mark.parametrize("forward", [True, False])
+def test_long_sweeps_release_unattended_memory_without_changing_attention(forward):
+    """Compare the bounded bank with an unpruned history, including retries."""
+    bank = MemoryBank(7)
+    history = MemoryBank(7)
+    order = list(range(100)) if forward else list(reversed(range(100)))
+    anchor = order[0]
+    bank.store(slot(anchor, conditioning=True))
+    history._slots[anchor] = slot(anchor, conditioning=True)
+    for frame in order[1:]:
+        for _ in range(2):
+            actual, actual_offsets = bank.gather(frame, forward)
+            expected, expected_offsets = history.gather(frame, forward)
+            assert [item.frame_index for item in actual] == [item.frame_index for item in expected]
+            assert actual_offsets == expected_offsets
+            bank.store(slot(frame))
+            history._slots[frame] = slot(frame)
+        assert len(bank) <= 8  # anchor, current frame, six predecessors
+        assert bank.get(anchor) is not None
+
+
 def test_pointer_and_temporal_ablations_actually_remove_their_signals():
     stack = lightweight_stack()
     bank = MemoryBank(7)
