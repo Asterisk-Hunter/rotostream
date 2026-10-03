@@ -1,0 +1,300 @@
+{
+  "model": "sam2_memory",
+  "device": "cuda",
+  "precision": "bfloat16",
+  "tolerance_pixels": 0,
+  "max_checks": 3,
+  "passed": true,
+  "reports": [
+    {
+      "model": "sam2_memory",
+      "sequence": "color_shift",
+      "direction": "forward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 12,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 23,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 12288
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "color_shift",
+      "direction": "backward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 23,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 11,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 12288
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "distractor",
+      "direction": "forward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 12,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 23,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 15360
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "distractor",
+      "direction": "backward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 23,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 11,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 15360
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "linear",
+      "direction": "forward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 12,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 23,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "linear",
+      "direction": "backward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 23,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 11,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "occlusion",
+      "direction": "forward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 14,
+          "differing_pixels": 0,
+          "mask_area": 288,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 29,
+          "differing_pixels": 0,
+          "mask_area": 0,
+          "total_pixels": 15360
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "occlusion",
+      "direction": "backward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 29,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 15,
+          "differing_pixels": 0,
+          "mask_area": 216,
+          "total_pixels": 15360
+        },
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 324,
+          "total_pixels": 15360
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "reentry",
+      "direction": "forward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 16,
+          "differing_pixels": 0,
+          "mask_area": 0,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 33,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    },
+    {
+      "model": "sam2_memory",
+      "sequence": "reentry",
+      "direction": "backward",
+      "tolerance_pixels": 0,
+      "ok": true,
+      "checks": [
+        {
+          "frame_index": 33,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 17,
+          "differing_pixels": 0,
+          "mask_area": 0,
+          "total_pixels": 12288
+        },
+        {
+          "frame_index": 0,
+          "differing_pixels": 0,
+          "mask_area": 256,
+          "total_pixels": 12288
+        }
+      ],
+      "leaks": [],
+      "skipped": []
+    }
+  ]
+}

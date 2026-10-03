@@ -111,8 +111,8 @@ class NaiveColorTracker(VideoObjectTracker):
             ]
         if not positives:
             raise ContractError(
-                "NaiveColorTracker needs at least one positive point (or a box) to "
-                "seed the colour model"
+                "Mark the object on this frame before excluding background. "
+                "The colour tracker needs a foreground point or a box on each prompted frame."
             )
 
         self._positives = positives

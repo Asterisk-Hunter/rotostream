@@ -30,6 +30,8 @@ Rebuild after changing this setting.
   and right arrow keys scrub the clip; the frame slider also supports keyboard navigation.
 - Prompt multiple frames to correct drift. **Track both directions** includes
   frames before the first prompt. A new run creates a new immutable session.
+  With the color baseline, mark foreground on each corrected frame before adding
+  background exclusions.
 - The timeline shows prompted frames, propagated confidence and reported absence.
 - Downloads use the last successful tracking session. Delete requires a second
   click because it removes the source, masks and exports together.

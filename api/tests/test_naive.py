@@ -93,7 +93,7 @@ def test_propagate_before_prompt_is_a_contract_error():
 def test_add_prompt_without_a_positive_point_is_a_contract_error():
     sequence = sliding_square(n_frames=2)
     tracker = build(sequence)
-    with pytest.raises(ContractError, match="positive point"):
+    with pytest.raises(ContractError, match="Mark the object on this frame"):
         tracker.add_prompt(
             PromptSet(frame_index=0, points=(PointPrompt(x=20, y=48, positive=False),))
         )

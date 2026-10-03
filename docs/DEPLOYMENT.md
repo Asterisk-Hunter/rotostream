@@ -64,6 +64,7 @@ authenticated gateway in front of it.
 Create a Python 3.12+ virtual environment and install `api/requirements.txt` and
 `ml/requirements.txt`. Install a PyTorch/torchvision build that matches your CUDA
 driver from the [official PyTorch installer](https://pytorch.org/get-started/locally/).
+Then install `api/requirements-model.txt` for the pinned model adapter dependencies.
 Copy `.env.example` to `.env`, select `ROTOSTREAM_DEFAULT_MODEL=sam2_memory`, and
 run `pnpm install --frozen-lockfile` followed by `pnpm dev` for local development.
 The first neural request downloads `facebook/sam2.1-hiera-tiny` unless it is cached.
@@ -138,6 +139,7 @@ upload, extraction, prompting, tracking, SSE, all six exports and cleanup. The C
 container job additionally builds the images, starts the authenticated gateway,
 checks unauthorized access, and runs the same workflow through that gateway.
 
-Container manifests were statically checked locally. A local Docker daemon is
-required for execution; the Windows environment used for this update had no running
-daemon. Treat the CI container result as the deployment gate, not this document.
+Container manifests were statically checked locally. Docker Desktop was started
+on the Windows validation host, but image-list and pull commands hung, so no local
+container execution pass is claimed. Treat the CI container result as the
+deployment gate, not static validation or this document.

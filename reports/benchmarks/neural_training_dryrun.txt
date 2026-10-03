@@ -1,0 +1,12 @@
+Command: python -m rotostream_ml.train --model sam2_memory --dataset synthetic --sequences linear --device cpu --sequence-length 2 --dry-run
+Torch CPU threads: 2
+Purpose: gradient wiring only; no optimizer updates or real-data training claim
+
+dry run: sam2_memory on 12 sample(s), device=cpu
+  trainable tensors: 305
+  sample: frames (2, 96, 128, 3) gt (2, 96, 128) prompts 1
+  loss 0.0270  |grad| 9.2830  params with non-zero grad: 272/305
+  loss 0.0270  |grad| 9.2830  params with non-zero grad: 272/305
+  loss 0.0270  |grad| 9.2830  params with non-zero grad: 272/305
+
+PASS: the training path is wired up. loss 0.0270 -> 0.0270, non-zero gradients in 272/305 trainable tensors.

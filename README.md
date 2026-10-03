@@ -1,220 +1,166 @@
 # RotoStream
 
-**A reproduction of SAM 2's memory mechanism, wrapped in a rotoscoping studio.**
+[![CI](https://github.com/Asterisk-Hunter/rotostream/actions/workflows/ci.yml/badge.svg)](https://github.com/Asterisk-Hunter/rotostream/actions/workflows/ci.yml)
 
-**What is reused and what is built — read this before the results.** The
-hierarchical Hiera image encoder is **reused, pretrained and frozen**; it is not a
-contribution of this project. Everything that *is* SAM 2's contribution — the
-**memory encoder, the memory bank, the memory attention, the mask decoder and the
-occlusion/presence head** — is **implemented from scratch** in this repository
-(`api/app/models/`). Nothing below is an achievement of the frozen encoder.
+**Click an object in a video, track its mask across frames, and export an editable cutout.**
 
-RotoStream is a from-scratch reproduction of the memory-attention video object
-tracker in *SAM 2: Segment Anything in Images and Videos* (Ravi et al., ICLR 2025,
-[arXiv:2408.00714](https://arxiv.org/abs/2408.00714)): click an object once and
-the tracker propagates its mask across every frame.
+RotoStream combines a Next.js rotoscoping studio, a FastAPI video pipeline, and an
+independent reproduction of SAM 2's memory mechanism. **The pretrained Hiera image
+encoder and released SAM 2.1 weights are reused.** The prompt encoder, memory
+encoder, directional memory bank, memory attention, mask decoder and presence
+head are implemented in this repository. This is a reproduction of
+[SAM 2](https://arxiv.org/abs/2408.00714), not a claim of a new model architecture.
 
-This is a **reproduction**, not a novel contribution. The paper is the source of
-the architecture; the surrounding application, the harness and the causality
-tightening are this repo's engineering work.
+![RotoStream studio showing prompts, masks, confidence and export controls](docs/images/studio.png)
 
----
+## Measured quality
 
-## Results
+DAVIS 2017 validation: **30 clips, 61 objects, 3,862 scored object-frames**, with
+first-frame ground-truth mask prompts and forward causal propagation. Objects are
+tracked independently; predictions are not merged into a joint multi-object label
+map. This is an independent-object evaluation, not an official leaderboard entry.
 
-Two different questions, two different kinds of evidence. Neither is a substitute
-for the other: parity says the implementation is *correct*, the benchmarks say
-what it *does*.
-
-### 1. Is this actually SAM 2's memory mechanism?
-
-Yes, to the last bit, and one command shows it:
-
-```bash
-.venv/Scripts/python api/scripts/check_parity.py
-```
-
-It loads the released SAM 2.1 weights into this repository's memory stack and runs
-both implementations on identical inputs:
-
-| Comparison | Result |
-| --- | --- |
-| Weight load | 0 missing, 0 unexpected keys |
-| Memory encoder (features, position codes) | max abs diff `0.000e+00` |
-| Memory attention (conditioned features) | max abs diff `0.000e+00` |
-
-That is the claim the rest of this README rests on. It is checked, not asserted.
-
-### 2. What quality comes out, and is it leak-free?
-
-Zero-shot — the memory stack above is warm-started from the released weights and
-never fine-tuned — on the synthetic scenarios in `ml/rotostream_ml/synthetic.py`:
-
-```bash
-cd ml && python -m rotostream_ml.evaluate --model sam2_memory --dataset synthetic
-```
-
-| Sequence | Frames | J | F | J&F |
-| --- | --- | --- | --- | --- |
-| color_shift | 24 | 1.0000 | 1.0000 | 1.0000 |
-| distractor | 24 | 1.0000 | 1.0000 | 1.0000 |
-| linear | 24 | 1.0000 | 1.0000 | 1.0000 |
-| reentry | 34 | 1.0000 | 1.0000 | 1.0000 |
-| occlusion | 30 | 0.8000 | 0.8000 | 0.8000 |
-| **mean** | **136** | **0.9600** | **0.9600** | **0.9600** |
-
-Presence head over the same run: accuracy 0.9559, precision 1.0000, recall 0.9520.
-The occlusion sequence is the one that separates a memory tracker from a colour
-matcher, and it is the one where the score drops.
-
-These are synthetic scenes chosen to exercise memory (linear motion, occlusion,
-re-entry, a colour-matched distractor), **not** DAVIS. They are a regression
-signal, not a leaderboard number.
-
-Causality is checked separately, on every scenario in both directions:
-
-```bash
-cd ml && python -m rotostream_ml.leakcheck --model sam2_memory --all
-```
-
-Masks are recomputed with the unvisited frames altered; if any mask changes, the
-run fails. All 5 scenarios pass in both directions.
-
-### 3. DAVIS 2017 val J&F — pending
-
-Deliberately still blank. A DAVIS number is only meaningful after a real training
-run on DAVIS/SA-V, and this checkout has neither the dataset nor a finished run;
-inventing one would defeat the point of the project. Fill this in from
-`rotostream_ml.evaluate`'s own output, never by hand.
-
-| Backbone | DAVIS 2017 val J&F | FPS | Notes |
+<!-- benchmark:start -->
+| Tracker | J | F | J&F |
 | --- | --- | --- | --- |
-| Hiera-T | _pending_ | _pending_ | `--json runs/davis_val.json` |
-| Hiera-B+ | _pending_ | _pending_ | paper reports 90.2 / 43.8 |
-| Hiera-L | _pending_ | _pending_ | paper reports 90.7 / 30.2 |
+| Color baseline | 11.20 | 16.48 | 13.84 |
+| SAM 2.1 Hiera-T memory reproduction | 85.89 | 92.91 | 89.40 |
+<!-- benchmark:end -->
 
-Paper reference points (SA-V-trained SAM 2.1, for context only — not targets):
-90.2 J&F on DAVIS 2017 val with Hiera-B+ at 43.8 FPS, 90.7 with Hiera-L at 30.2 FPS.
+The neural run uses the released `facebook/sam2.1-hiera-tiny` checkpoint without
+DAVIS fine-tuning. Propagation throughput was **2.88 FPS** on an RTX 4050
+Laptop GPU at a 1024px encoder resolution; loading, prompts and scoring are
+excluded. This implementation does not claim real-time neural inference.
 
-### 4. Training
+[Results and raw evidence](docs/RESULTS.md) document the exact protocol, weight
+revision, timings, weak tracks, decoder/presence parity and training gradient
+checks. Synthetic clips are regression tests and are kept out of capability claims.
 
-`ml/rotostream_ml/train.py` drives the stack through `TrainableTracker`:
+## The studio
 
-```bash
-cd ml
-python -m rotostream_ml.train --model sam2_memory --dry-run   # wiring, 3 steps
-python -m rotostream_ml.train --model sam2_memory --overfit --steps 50
-```
+- Upload common video formats with real progress and bounded frame extraction.
+- Mark foreground/background with clicks, touch or keyboard input; add corrections
+  on later frames and propagate in either direction.
+- Inspect masks, per-frame confidence, object absence and the memory bank.
+- Keep immutable tracking sessions so a new run cannot change an existing export.
+- Export transparent WebM, mask overlay MP4, replaced background MP4, RGBA PNG
+  sequence, mask PNG sequence, or COCO-style RLE JSON.
+- Recover saved results after reload, retry interrupted progress connections, cancel
+  jobs, and remove clips with their masks and exports.
 
-The dry run checks the failure modes that waste a day — no trainable parameters, a
-detached loss, a branch with no gradient — and reports gradients flowing through
-305 tensors (274 of them non-zero). The overfit check fits a single clip and fails
-if the loss did not fall; it takes the mean loss from **0.011446 to 0.000000**, a
-100% drop over 50 steps at lr 1e-4.
+## Run locally
 
-Gradient checkpointing is on by default during training (`MemoryStack.set_gradient_checkpointing`):
-a clip is one graph, and the memory encoder's stride-2 pass over a 1024×1024 mask
-is ~0.25 GB of activation *per frame*, which is what makes clip length rather than
-model size decide whether a step fits. Without it a 16-frame step sat at the 6 GB
-ceiling of a laptop RTX 4050 for over ten minutes; with it, steps are ~10-15 s.
-
-### Ablations (skeleton)
-
-Produced by `python -m rotostream_ml.evaluate` with the corresponding
-`memory_bank_size` / flags. Empty until run — the flags exist
-(`Tracker(memory_bank_size=N)`), the numbers do not.
-
-| Variant | J&F | Δ |
-| --- | --- | --- |
-| memories = 1 | | |
-| memories = 2 | | |
-| memories = 4 | | |
-| memories = 6 (default) | | |
-| memories = 8 | | |
-| presence head off | | |
-| temporal pos-emb off | | |
-| object pointers off | | |
-
-The paper's memory-size sweep (Table 9c) is essentially flat — 4 / 6 / 8 give
-73.5 / 73.0 / 73.2 J&F — which is why 6 is the default here.
-
----
-
-## Quickstart
+Requires **Node 22.6+**, **pnpm 10.4.1**, **Python 3.12+**, and **ffmpeg/ffprobe** on PATH.
+The color baseline needs no GPU or model download.
 
 ```bash
-# 1. Python env (Windows paths; swap for bin/ on POSIX).
-python -m venv .venv --system-site-packages
+python -m venv .venv
+# Windows:
 .venv/Scripts/python -m pip install -r api/requirements.txt -r ml/requirements.txt
+# macOS/Linux: use .venv/bin/python instead.
 
-# 2. Run API + web together (prefixed logs, one Ctrl-C stops both).
+pnpm install --frozen-lockfile
+# Copy .env.example to .env if you want to adjust settings.
 pnpm dev
-#   API  -> http://127.0.0.1:8010/docs
-#   web  -> http://localhost:3000
 ```
 
-`ROTOSTREAM_DEFAULT_MODEL` selects the tracker (default `naive`), and
-`ROTOSTREAM_DEVICE=auto|cuda|cpu`. Every setting is listed in `.env.example`. The
-web app reads `NEXT_PUBLIC_API_BASE_URL` (`web/.env.example`).
+Studio: `http://localhost:3000` · API: `http://127.0.0.1:8010/docs`.
 
-The surrounding app already runs end to end today: upload a video, click to
-prompt, propagate, and export in six formats.
+Upload [the included four-second example](samples/moving-square.mp4), click the red
+square on frame 0 (x≈37, y≈179), and select **Track object**. See
+[sample instructions](samples/README.md) and [studio controls](web/README.md).
+
+For neural tracking, install a compatible PyTorch/torchvision pair using the
+[official installer](https://pytorch.org/get-started/locally/) and install
+`api/requirements-model.txt`. Select `sam2_memory` in the studio or set
+`ROTOSTREAM_DEFAULT_MODEL=sam2_memory`. The first use downloads the released tiny
+checkpoint. `ROTOSTREAM_DEVICE=auto|cuda|cpu` controls execution. Missing optional
+dependencies are reported by the model picker.
+
+## Deploy and operate
+
+`compose.yaml` builds non-root API and web images behind a password-protected
+Caddy gateway. Backend ports are private, uploads are capped, the queue and preview
+cache are bounded, and a persistent volume stores clips, sessions and exports.
+
+```bash
+cp .env.production.example .env.production
+docker run --rm -it caddy:2.10-alpine caddy hash-password
+# Put the generated hash in ROTOSTREAM_AUTH_HASH in .env.production, preserving quotes.
+docker compose --env-file .env.production up --build -d --wait
+```
+
+Open `http://127.0.0.1:8080`. The default container image supplies the CPU baseline.
+The [deployment guide](docs/DEPLOYMENT.md) covers native GPU inference, TLS/SSH
+remote access, readiness, limits, backup/restore and upgrades. This deployment
+supports one editor and one API worker; jobs and compute locks are in-process.
 
 ## Verify
 
 ```bash
-.venv/Scripts/python -m pytest api/tests ml/tests   # contract, API, metrics, harness
-.venv/Scripts/python api/scripts/check_model.py     # per-tracker contract check
-.venv/Scripts/python api/scripts/check_parity.py    # numerical parity vs the released weights
-cd web && pnpm exec tsc --noEmit                    # frontend types
+pnpm verify                  # lint, types, web tests, Python tests, production build
+pnpm smoke                   # running API: real HTTP, SSE and all six exports
+pnpm check:model -- naive    # tracker contract
+node scripts/python.mjs api/scripts/check_parity.py --json runs/parity.json
 ```
 
-`check_model.py` prints one line per check and is the fastest loop while working
-on a model. `check_parity.py` is the correctness claim from §1 above.
-`python -m rotostream_ml.leakcheck --model sam2_memory --all` proves the memory
-bank never reads unvisited frames.
+The Python suite covers contract rules, forward/backward causality, upload/export
+failure paths, queue limits, cancellation, storage IDs, restart recovery, DAVIS
+split/protocol handling, metrics and training/checkpoint behavior. The frontend
+suite covers coordinate scaling, timecode and progress monitoring. CI additionally
+builds the authenticated container stack and runs the HTTP workflow through it.
+See [executed validation](docs/VALIDATION.md) for checks, browser coverage and limits.
 
----
+Use `pnpm dev:api` or `pnpm dev:web` to run a single development service.
+`.env.example` documents server settings; `web/.env.example` documents the browser
+API URL. Test scripts choose the correct virtualenv path on Windows and POSIX.
 
-## How it is put together
+## Architecture
 
-| Piece | Where |
+```mermaid
+flowchart LR
+  Studio[Next.js studio] --> API[FastAPI]
+  API --> Disk[(Video frames, sessions, exports)]
+  API --> Queue[Bounded job worker]
+  Queue --> Tracker[Tracker contract]
+  Tracker --> Hiera[Frozen pretrained Hiera]
+  Hiera --> Attention[Memory attention]
+  Bank[Directional memory bank] --> Attention
+  Attention --> Decoder[Mask and presence decoder]
+  Decoder --> Bank
+  Decoder --> Disk
+  Disk --> Export[ffmpeg and ZIP/RLE exporters]
+```
+
+Only already-visited frames can condition propagation: forward reads lower
+indices; backward reads higher indices. The studio's “both directions” toggle
+runs two causal sweeps. It never grants attention to unvisited frames.
+Preview and background jobs share one compute gate; weights are reused for clicks
+and evicted before a separate tracking model is loaded.
+
+| Area | Source |
 | --- | --- |
-| Tracker contract (the seam) | `api/app/models/base.py` |
-| Memory stack | `api/app/models/sam2_stack/` (modules, decoder, bank, losses) |
-| Tracker glue (contract + training step) | `api/app/models/sam2_memory.py` |
-| Reference baseline (no memory) | `api/app/models/naive.py` |
-| HTTP API, storage, jobs, ffmpeg | `api/app/` |
-| Evaluation + training harness | `ml/rotostream_ml/` |
-| Studio UI | `web/src/` |
+| Tracker and training contracts | [`api/app/models/base.py`](api/app/models/base.py) |
+| Memory mechanism | [`api/app/models/sam2_stack/`](api/app/models/sam2_stack/) |
+| Causal planner and preview cache | [`api/app/pipeline.py`](api/app/pipeline.py) |
+| Video pipeline and exports | [`api/app/video.py`](api/app/video.py) |
+| Evaluation, ablations and training | [`ml/rotostream_ml/`](ml/rotostream_ml/) |
+| Studio and progress monitoring | [`web/src/`](web/src/) |
 
-**Memory stack, in one paragraph.** The frozen Hiera encoder produces
-multi-scale features once per frame. A memory encoder conv-downsamples the
-predicted mask and sums it with those *unconditioned* features — no second image
-encoder is run. Two FIFO queues hold recent and prompted frames (projected to 64
-channels); 4 memory-attention blocks with 2D spatial RoPE let the current frame
-cross-attend over that bank and over 4×64-dimensional object pointers. A SAM-style
-two-way mask decoder consumes stride-4 and stride-8 Hiera features directly
-through skip connections, and an occlusion head reports `object_present` while an
-occlusion embedding is written back into the bank.
+Read [the architecture](docs/ARCHITECTURE.md), [model contract](docs/MODEL_CONTRACT.md),
+[results](docs/RESULTS.md), [deployment guide](docs/DEPLOYMENT.md), or
+[handoff](HANDOFF.md). The [case study](docs/CASE_STUDY.md) explains the engineering
+decisions and what the evidence supports.
+The [original DAVIS evaluation plan](docs/DAVIS-EVALUATION-PLAN.md) preserves the
+review that motivated the protocol corrections.
 
-### A deliberate deviation from the paper
+## Scope and provenance
 
-The paper's memory is **bidirectional**: a prompted frame may be attended to even
-when it lies "in the future" of the frame being predicted. This repo is
-**stricter and directional** — `FORWARD` may read only indices `< frame_index`,
-`BACKWARD` only `> frame_index` — so a benchmark number reflects the
-click-then-propagate behaviour a user actually gets. The rule is enforced by
-`api/tests/test_contract.py` and `ml/rotostream_ml/leakcheck.py`. See
-`docs/MODEL_CONTRACT.md` §4; the model must not adopt bidirectional memory.
+A studio session tracks one object. DAVIS evaluation repeats that contract for
+each annotated object. Multi-user tenancy and joint multi-object arbitration are
+not implemented. Jobs do not survive a process restart; durable incomplete records
+are marked failed and can be retried. Cancellation checks run between operations,
+and an in-flight ffmpeg command is bounded by its deadline.
 
-## Documentation
-
-- [`docs/MODEL_CONTRACT.md`](docs/MODEL_CONTRACT.md) — the model author's reference: contract rules, shapes, the memory-stack spec, the three correctness corrections, and the verification order.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — request lifecycle (upload → extract → prompt → propagate → overlay → export), disk layout, jobs and the leak-free step planner.
-- [`docs/ASSESSMENT.md`](docs/ASSESSMENT.md) — candid read of what this repository proves, what is missing, where it is weak, and what to do next. Start here if you want the honest version.
-
-## License
-
-The reference implementation and checkpoint referenced above are Apache 2.0
-(facebookresearch/sam2).
+The referenced SAM 2 implementation and released weights are Apache 2.0.
+Original sample media is generated from this repository's deterministic fixtures.

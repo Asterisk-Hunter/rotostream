@@ -1,0 +1,249 @@
+{
+  "backbone": "facebook/sam2.1-hiera-tiny",
+  "seed": 0,
+  "rope_grid": [
+    8,
+    8
+  ],
+  "dtype": "float32",
+  "device": "cpu",
+  "reference_attention_backend": "eager",
+  "weights_revision": "de431c4043854a71d8101e17995dfe596bf101a5",
+  "torch_version": "2.8.0+cu128",
+  "missing_keys": [],
+  "unexpected_keys": [],
+  "comparisons": [
+    {
+      "component": "features",
+      "shape": [
+        1,
+        64,
+        64,
+        64
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "position codes",
+      "shape": [
+        1,
+        64,
+        64,
+        64
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "conditioned features",
+      "shape": [
+        64,
+        1,
+        256
+      ],
+      "max_absolute_difference": 7.152557373046875e-07,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "single raw mask logits",
+      "shape": [
+        1,
+        1,
+        1,
+        32,
+        32
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "single mask logits",
+      "shape": [
+        1,
+        1,
+        1,
+        32,
+        32
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "single IoU scores",
+      "shape": [
+        1,
+        1,
+        1
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "single presence logits",
+      "shape": [
+        1,
+        1,
+        1
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "single chosen pointer token",
+      "shape": [
+        1,
+        1,
+        256
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "multi raw mask logits",
+      "shape": [
+        1,
+        1,
+        3,
+        32,
+        32
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "multi mask logits",
+      "shape": [
+        1,
+        1,
+        3,
+        32,
+        32
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "multi IoU scores",
+      "shape": [
+        1,
+        1,
+        3
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "multi presence logits",
+      "shape": [
+        1,
+        1,
+        1
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "multi chosen pointer token",
+      "shape": [
+        1,
+        1,
+        256
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "visible quantized spatial memory",
+      "shape": [
+        4096,
+        1,
+        64
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.bfloat16",
+      "passed": true
+    },
+    {
+      "component": "visible memory positions",
+      "shape": [
+        4096,
+        1,
+        64
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    },
+    {
+      "component": "absent quantized spatial memory",
+      "shape": [
+        4096,
+        1,
+        64
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.bfloat16",
+      "passed": true
+    },
+    {
+      "component": "absent memory positions",
+      "shape": [
+        4096,
+        1,
+        64
+      ],
+      "max_absolute_difference": 0.0,
+      "absolute_tolerance": 1e-05,
+      "relative_tolerance": 1e-05,
+      "dtype": "torch.float32",
+      "passed": true
+    }
+  ],
+  "passed": true
+}

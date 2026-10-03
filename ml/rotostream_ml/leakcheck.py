@@ -28,6 +28,7 @@ right answer is known.
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import sys
 from dataclasses import dataclass, field
 from typing import Callable
@@ -332,10 +333,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-checks", type=int, default=DEFAULT_MAX_CHECKS)
     parser.add_argument("--tolerance", type=int, default=0, help="allowed differing pixels")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--precision", choices=("float32", "bfloat16"), default="float32",
+                        help="CUDA autocast precision; recorded in the JSON evidence")
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--all", action="store_true", help="every scenario, both directions")
     parser.add_argument("--json", default=None, help="write probe evidence as JSON")
     args = parser.parse_args(argv)
+    if args.precision == "bfloat16" and not args.device.startswith("cuda"):
+        parser.error("--precision bfloat16 requires --device cuda")
     preloaded = None
     if args.model == "sam2_memory":
         import torch
@@ -353,19 +358,23 @@ def main(argv: list[str] | None = None) -> int:
         sequence = build(name)
         for direction in directions:
             try:
-                report = check_causality(
-                    args.model,
-                    sequence,
-                    direction=direction,
-                    object_index=args.object_index,
-                    frames=args.frames,
-                    tolerance_pixels=args.tolerance,
-                    max_checks=args.max_checks,
-                    device=args.device,
-                    checkpoint=args.checkpoint,
-                    prompt_frame=args.prompt_frame,
-                    preloaded_tracker=preloaded,
-                )
+                if args.precision == "bfloat16":
+                    import torch
+                with (torch.autocast("cuda", dtype=torch.bfloat16)
+                      if args.precision == "bfloat16" else nullcontext()):
+                    report = check_causality(
+                        args.model,
+                        sequence,
+                        direction=direction,
+                        object_index=args.object_index,
+                        frames=args.frames,
+                        tolerance_pixels=args.tolerance,
+                        max_checks=args.max_checks,
+                        device=args.device,
+                        checkpoint=args.checkpoint,
+                        prompt_frame=args.prompt_frame,
+                        preloaded_tracker=preloaded,
+                    )
             except Exception as exc:  # noqa: BLE001 - report tooling failures per scenario
                 print(f"{args.model} on {name} [{direction.value}] - ERROR: {type(exc).__name__}: {exc}")
                 failures += 1
@@ -383,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
         path = Path(args.json)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"model": args.model, "device": args.device,
+                                    "precision": args.precision,
                                     "tolerance_pixels": args.tolerance, "max_checks": args.max_checks,
                                     "passed": not failures and not skipped, "reports": reports}, indent=2),
                         encoding="utf-8")

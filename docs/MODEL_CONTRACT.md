@@ -84,9 +84,14 @@ Payload types (`base.py`):
 | `Direction` | `FORWARD = "forward"`, `BACKWARD = "backward"` (str enum) |
 | `PointPrompt` | `x: float, y: float, positive: bool = True` |
 | `BoxPrompt` | `x0, y0, x1, y1: float` (pixel coords of the prompted frame) |
-| `PromptSet` | `frame_index: int`, `points: tuple[PointPrompt, ...]`, `box: BoxPrompt \| None` |
+| `PromptSet` | `frame_index: int`, `points: tuple[PointPrompt, ...]`, `box: BoxPrompt \| None`, `mask: np.ndarray \| None` |
 | `FrameResult` | `mask: np.ndarray (H, W) bool`, `score: float`, `object_present: bool`, `extras: dict` |
 | `TrainingSequence` | `frames (T,H,W,3) uint8`, `gt_masks (T,H,W) bool`, `prompts: tuple[PromptSet, ...]`, `meta: dict` |
+
+Mask prompts are copied into read-only boolean `(H, W)` arrays and cannot be
+combined with points or a box. Evaluation uses this path for first-frame ground
+truth; the browser continues to use point/box prompts. The color baseline requires
+a foreground point or box on every point-prompted frame before background exclusions.
 | `FrameSource` | `.n_frames`, `.width`, `.height`, `.fps`, `__getitem__(i) -> (H,W,3) uint8 RGB` |
 
 `check_frame_result()` (`base.py:209`) enforces shape, `bool` dtype, `score` in
@@ -120,7 +125,7 @@ it is not what the paper claims.
 
 ## 3. The memory stack, with the real numbers
 
-Defaults live in the stub's `__init__`: `memory_bank_size=6`,
+Defaults live in the tracker's `__init__`: `memory_bank_size=6`,
 `num_memory_layers=4`, `embed_dim=256`, `num_heads=8`. Keep those names — the API
 and the ablation table in the README quote them.
 
