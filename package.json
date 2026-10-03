@@ -12,12 +12,16 @@
     "lint": "pnpm --dir web lint",
     "typecheck": "pnpm --dir web typecheck",
     "test:web": "pnpm --dir web test",
-    "test:api": ".venv/Scripts/python -m pytest api/tests -q || .venv/bin/python -m pytest api/tests -q",
-    "test:ml": ".venv/Scripts/python -m pytest ml/tests -q || .venv/bin/python -m pytest ml/tests -q",
-    "check:model": ".venv/Scripts/python api/scripts/check_model.py || .venv/bin/python api/scripts/check_model.py"
+    "test:api": "node scripts/python.mjs -m pytest api/tests -q",
+    "test:ml": "node scripts/python.mjs -m pytest ml/tests -q",
+    "test": "node scripts/python.mjs -m pytest api/tests ml/tests -q",
+    "check:model": "node scripts/python.mjs api/scripts/check_model.py",
+    "smoke": "node scripts/python.mjs api/scripts/smoke.py",
+    "demo": "node scripts/python.mjs scripts/make_demo.py",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:web && pnpm test && pnpm build"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.6"
   },
   "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af"
 }

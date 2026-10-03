@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -20,6 +22,10 @@ from .storage import new_id, utcnow
 logger = logging.getLogger(__name__)
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
+
+
+class JobCapacityError(RuntimeError):
+    """The bounded worker queue cannot accept more work."""
 
 
 class JobCancelled(Exception):
@@ -90,10 +96,16 @@ class JobContext:
 
 
 class JobManager:
-    def __init__(self, history: int = 200):
+    def __init__(self, history: int = 200, max_pending: int = 16):
         self._jobs: "OrderedDict[str, Job]" = OrderedDict()
         self._lock = threading.RLock()
         self._history = history
+        self._max_pending = max_pending
+        self._closed = False
+        self._submitted: set[str] = set()
+        self._outstanding: set[str] = set()
+        self._callbacks: dict[str, Callable[[Job], None]] = {}
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rotostream-job")
         # Heavy jobs (tracking, exports) run one at a time.
         self._gate = threading.Semaphore(1)
 
@@ -107,10 +119,18 @@ class JobManager:
             video_id=video_id,
         )
         with self._lock:
+            reserved = {key for key, item in self._jobs.items() if not item.done} | self._outstanding
+            if self._closed or len(reserved) >= self._max_pending:
+                raise JobCapacityError("worker queue is full; retry after current jobs finish")
             self._jobs[job.id] = job
-            while len(self._jobs) > self._history:
-                self._jobs.popitem(last=False)
+            self._prune()
         return job
+
+    def _prune(self) -> None:
+        completed = [key for key, job in self._jobs.items() if job.done and key not in self._outstanding]
+        for key in completed[:-self._history]:
+            self._jobs.pop(key, None)
+            self._submitted.discard(key)
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
@@ -129,7 +149,12 @@ class JobManager:
             if job is None or job.done:
                 return False
             job.cancel_requested = True
-            job.message = "cancelling..."
+            if job.status == "queued":
+                job.status = "cancelled"
+                job.message = "cancelled"
+                self._notify_done(job)
+            else:
+                job.message = "cancelling..."
             job.updated_at = utcnow()
             return True
 
@@ -143,27 +168,59 @@ class JobManager:
             job.updated_at = utcnow()
 
     # ------------------------------------------------------------------ running
-    def submit(self, job: Job, body: JobBody, *, exclusive: bool = True) -> Job:
-        thread = threading.Thread(
-            target=self._worker, args=(job, body, exclusive), daemon=True,
-            name=f"job-{job.kind}-{job.id}",
-        )
-        thread.start()
+    def submit(self, job: Job, body: JobBody, *, exclusive: bool = True,
+               on_done: Callable[[Job], None] | None = None) -> Job:
+        with self._lock:
+            if job.id in self._submitted:
+                raise ValueError("job has already been submitted")
+            if self._closed:
+                raise JobCapacityError("worker is shutting down")
+            self._submitted.add(job.id)
+            self._outstanding.add(job.id)
+            if on_done:
+                self._callbacks[job.id] = on_done
+            self._executor.submit(self._worker, job, body, exclusive)
         return job
+
+    def _notify_done(self, job: Job) -> None:
+        with self._lock:
+            callback = self._callbacks.pop(job.id, None)
+        if callback:
+            try:
+                callback(job)
+            except Exception:
+                logger.exception("job %s completion cleanup failed", job.id)
+
+    @contextmanager
+    def compute_slot(self):
+        """Serialize interactive inference with background GPU work."""
+        with self._gate:
+            yield
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._closed = True
+            for job in list(self._jobs.values()):
+                if not job.done:
+                    self.cancel(job.id)
+        self._executor.shutdown(wait=True)
 
     def _worker(self, job: Job, body: JobBody, exclusive: bool) -> None:
         acquired = False
         try:
+            if job.done:
+                return
             if exclusive:
-                self._gate.acquire()
+                while not self._gate.acquire(timeout=0.1):
+                    if job.cancel_requested:
+                        raise JobCancelled()
                 acquired = True
-            if job.cancel_requested:
-                raise JobCancelled()
-            self._update(job.id, status="running", message="starting")
+            with self._lock:
+                if job.cancel_requested:
+                    raise JobCancelled()
+                self._update(job.id, status="running", message="starting")
 
             result = body(JobContext(self, job))
-            if job.cancel_requested:
-                raise JobCancelled()
             self._update(
                 job.id, status="succeeded", progress=1.0, result=result or {}, message="done",
             )
@@ -181,12 +238,20 @@ class JobManager:
         finally:
             if acquired:
                 self._gate.release()
+            self._notify_done(job)
+            with self._lock:
+                self._outstanding.discard(job.id)
+                self._prune()
 
 
 @lru_cache
 def get_job_manager() -> JobManager:
-    return JobManager()
+    from .settings import get_settings
+    settings = get_settings()
+    return JobManager(history=settings.job_history, max_pending=settings.max_pending_jobs)
 
 
 def reset_job_manager() -> None:
+    if get_job_manager.cache_info().currsize:
+        get_job_manager().shutdown()
     get_job_manager.cache_clear()

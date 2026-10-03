@@ -108,14 +108,15 @@ class MaskDecoderOutput:
     projects into an object pointer.
     """
 
-    __slots__ = ("low_res_masks", "high_res_masks", "iou_scores", "object_score_logits", "sam_tokens")
+    __slots__ = ("low_res_masks", "high_res_masks", "iou_scores", "object_score_logits", "sam_tokens", "raw_low_res_masks")
 
-    def __init__(self, low_res_masks, high_res_masks, iou_scores, object_score_logits, sam_tokens):
+    def __init__(self, low_res_masks, high_res_masks, iou_scores, object_score_logits, sam_tokens, raw_low_res_masks=None):
         self.low_res_masks = low_res_masks
         self.high_res_masks = high_res_masks
         self.iou_scores = iou_scores
         self.object_score_logits = object_score_logits
         self.sam_tokens = sam_tokens
+        self.raw_low_res_masks = raw_low_res_masks
 
 
 class MaskDecoder(nn.Module):
@@ -159,6 +160,7 @@ class MaskDecoder(nn.Module):
         self.dynamic_multimask_via_stability = dynamic_multimask_via_stability
         self.dynamic_multimask_stability_delta = dynamic_multimask_stability_delta
         self.dynamic_multimask_stability_thresh = dynamic_multimask_stability_thresh
+        self.presence_head_enabled = True
 
     # ------------------------------------------------------------------ helpers
     def _stability_scores(self, mask_logits: torch.Tensor) -> torch.Tensor:
@@ -250,7 +252,10 @@ class MaskDecoder(nn.Module):
         # says the object is gone, the frame collapses to "no object" rather than
         # to a stale mask.
         present = self.pred_obj_score_head(object_token_out)
+        if not self.presence_head_enabled:
+            present = torch.full_like(present, 10.0)
         is_present = present > 0
+        raw_masks = masks
         masks = torch.where(is_present[:, :, None, None], masks, torch.full_like(masks, NO_OBJ_SCORE))
 
         high_res_masks = F.interpolate(
@@ -258,7 +263,9 @@ class MaskDecoder(nn.Module):
         ).to(masks.dtype)
 
         best = torch.argmax(iou_pred, dim=-1)
-        sam_tokens = mask_tokens_out[torch.arange(flat, device=masks.device), best]
+        # Multi-mask outputs correspond to tokens 1..3, not the single-mask token 0.
+        pointer_tokens = mask_tokens_out[:, 1:] if multimask_output else mask_tokens_out[:, :1]
+        sam_tokens = pointer_tokens[torch.arange(flat, device=masks.device), best]
 
         shape = lambda tensor: tensor.view(batch_size, point_batch_size, *tensor.shape[1:])  # noqa: E731
         return MaskDecoderOutput(
@@ -267,4 +274,5 @@ class MaskDecoder(nn.Module):
             iou_scores=shape(iou_pred),
             object_score_logits=present.view(batch_size, point_batch_size, 1),
             sam_tokens=shape(sam_tokens),
+            raw_low_res_masks=shape(raw_masks),
         )

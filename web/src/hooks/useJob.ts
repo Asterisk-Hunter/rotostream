@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import type { Job, TrackResult } from "@/lib/types";
+import { monitorJob, parseJobMessage } from "@/lib/jobMonitor";
 
 export interface JobState {
   job: Job<TrackResult> | null;
@@ -16,8 +17,9 @@ export interface JobState {
 
 interface Snapshot {
   jobId: string;
-  job: Job<TrackResult>;
+  job: Job<TrackResult> | null;
   error: string | null;
+  stopped?: boolean;
 }
 
 /**
@@ -32,67 +34,34 @@ interface Snapshot {
  * (which React flags as cascading renders) and makes a stale job impossible to
  * read after the id changes.
  */
-export function useJob(jobId: string | null, pollMs = 400): JobState {
+export function useJob(jobId: string | null, pollMs = 1000): JobState {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
 
   useEffect(() => {
     if (!jobId) return;
 
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const record = (job: Job<TrackResult>, error: string | null) => {
-      if (disposed) return;
-      setSnapshot({ jobId, job, error });
-    };
-
-    const pull = async () => {
-      try {
-        const next = await api.getJob(jobId);
-        record(next, null);
-        if (next.status === "queued" || next.status === "running") {
-          timer = setTimeout(() => void pull(), pollMs);
-        }
-      } catch (cause) {
-        if (disposed) return;
-        setSnapshot((current) =>
-          current && current.jobId === jobId
-            ? { ...current, error: cause instanceof Error ? cause.message : String(cause) }
-            : current,
-        );
-      }
-    };
-
-    const source =
-      typeof EventSource === "undefined" ? null : new EventSource(api.eventsUrl(jobId));
-    if (source) {
-      source.onmessage = (event) => {
-        try {
-          record(JSON.parse(event.data) as Job<TrackResult>, null);
-        } catch {
-          /* ignore malformed frames; the polling fallback will cover it */
-        }
-      };
-      source.addEventListener("done", () => source.close());
-      source.onerror = () => {
-        source.close();
-        void pull();
-      };
-    }
-
-    void pull();
-
-    return () => {
-      disposed = true;
-      source?.close();
-      if (timer) clearTimeout(timer);
-    };
+    return monitorJob({
+      load: () => api.getJob(jobId),
+      publish: (next) => setSnapshot({ jobId, ...next }),
+      pollMs,
+      shouldRetry: (cause) => !(cause instanceof ApiError && [404, 410].includes(cause.status)),
+      subscribe: typeof EventSource === "undefined" ? undefined : (receive) => {
+        const source = new EventSource(api.eventsUrl(jobId));
+        source.onmessage = (event) => {
+          const job = parseJobMessage(event.data, jobId);
+          if (job) receive(job);
+        };
+        source.addEventListener("done", () => source.close());
+        source.onerror = () => source.close();
+        return () => source.close();
+      },
+    });
   }, [jobId, pollMs]);
 
   // Only ever expose the snapshot that belongs to the requested job.
   const current = snapshot && snapshot.jobId === jobId ? snapshot : null;
   const job = current?.job ?? null;
-  const active = job?.status === "queued" || job?.status === "running";
+  const active = Boolean(jobId && !current?.stopped && (!job || job.status === "queued" || job.status === "running"));
 
   return {
     job,

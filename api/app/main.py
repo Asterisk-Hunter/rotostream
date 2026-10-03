@@ -9,8 +9,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import __version__
+from .jobs import JobCapacityError, get_job_manager
+from .pipeline import clear_preview_cache
 from .models import registry
 from .routers import exports, health
 from .routers import models as models_router
@@ -52,6 +55,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     workspace = get_workspace()
     workspace.root.mkdir(parents=True, exist_ok=True)
+    workspace.recover_interrupted()
 
     for entry in apply_model_registrations():
         logger.info("registered tracker %s", entry)
@@ -65,7 +69,11 @@ async def lifespan(app: FastAPI):
     logger.info("workspace : %s", workspace.root)
     logger.info("trackers  : %s", ", ".join(registry.available_keys()))
     logger.info("default   : %s (device=%s)", settings.default_model, settings.device)
-    yield
+    try:
+        yield
+    finally:
+        get_job_manager().shutdown()
+        clear_preview_cache()
 
 
 app = FastAPI(
@@ -90,6 +98,16 @@ app.include_router(models_router.router)
 app.include_router(videos.router)
 app.include_router(tracking.router)
 app.include_router(exports.router)
+
+
+@app.exception_handler(JobCapacityError)
+async def queue_full(request, exc):
+    return JSONResponse(status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "5"})
+
+
+@app.exception_handler(FileNotFoundError)
+async def resource_missing(request, exc):
+    return JSONResponse(status_code=404, content={"detail": "resource not found"})
 
 
 @app.get("/", include_in_schema=False)

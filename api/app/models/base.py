@@ -138,12 +138,22 @@ class PromptSet:
     frame_index: int
     points: tuple[PointPrompt, ...] = ()
     box: BoxPrompt | None = None
+    mask: np.ndarray | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.frame_index < 0:
             raise ValueError("frame_index must be >= 0")
-        if not self.points and self.box is None:
-            raise ValueError("a PromptSet needs at least one point or a box")
+        if not self.points and self.box is None and self.mask is None:
+            raise ValueError("a PromptSet needs at least one point, a box or a mask")
+        if self.mask is not None:
+            if self.points or self.box is not None:
+                raise ValueError("a mask prompt cannot be combined with points or a box")
+            mask = np.asarray(self.mask)
+            if mask.ndim != 2 or not all(mask.shape) or mask.dtype != np.bool_:
+                raise ValueError("mask prompt must be a nonempty (H, W) boolean array")
+            mask = np.array(mask, dtype=bool, copy=True, order="C")
+            mask.flags.writeable = False
+            object.__setattr__(self, "mask", mask)
 
     @property
     def positive_points(self) -> tuple[PointPrompt, ...]:

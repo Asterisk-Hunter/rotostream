@@ -11,8 +11,9 @@ export function formatBytes(bytes: number): string {
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
   if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round(seconds % 60);
+  const rounded = Math.round(seconds);
+  const minutes = Math.floor(rounded / 60);
+  const rest = rounded % 60;
   return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
 }
 
@@ -32,9 +33,9 @@ export function formatScore(score: number): string {
 
 export function formatTimecode(frameIndex: number, fps: number): string {
   if (!Number.isFinite(fps) || fps <= 0) return `#${frameIndex}`;
-  const totalSeconds = frameIndex / fps;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
+  const hundredths = Math.round((frameIndex / fps) * 100);
+  const minutes = Math.floor(hundredths / 6000);
+  const seconds = (hundredths % 6000) / 100;
   return `${minutes}:${seconds.toFixed(2).padStart(5, "0")}`;
 }
 

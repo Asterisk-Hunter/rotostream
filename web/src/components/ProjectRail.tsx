@@ -35,12 +35,13 @@ const STATUS_TONE = {
 export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, onDelete }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const pick = () => inputRef.current?.click();
+  const pick = () => { if (!upload.active) inputRef.current?.click(); };
 
   const accept = (files: FileList | null) => {
     const file = files?.[0];
-    if (file) onUpload(file);
+    if (file && !upload.active) onUpload(file);
   };
 
   return (
@@ -69,9 +70,11 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
         }}
         onClick={pick}
         role="button"
-        tabIndex={0}
+        aria-label="Upload a video clip"
+        aria-disabled={upload.active}
+        tabIndex={upload.active ? -1 : 0}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") pick();
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(); }
         }}
         className={cx(
           "cursor-pointer rounded-panel border border-dashed px-4 py-5 text-center transition-colors",
@@ -126,7 +129,8 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
             >
               <button
                 type="button"
-                onClick={() => onSelect(video.id)}
+                onClick={() => { setDeleteId(null); onSelect(video.id); }}
+                aria-pressed={selected}
                 className="flex w-full gap-2.5 p-2 text-left"
               >
                 <span className="checker h-11 w-16 shrink-0 overflow-hidden rounded border border-ink-700">
@@ -177,12 +181,21 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
                   variant="ghost"
                   aria-label={`Delete ${video.filename}`}
                   title="Delete clip and all its masks"
-                  onClick={() => onDelete(video.id)}
+                  onClick={() => setDeleteId(video.id)}
                   className="px-1.5 py-1"
                 >
                   <TrashIcon className="h-3.5 w-3.5" />
                 </Button>
               </div>
+              {deleteId === video.id && (
+                <div className="space-y-2 border-t border-negative/25 bg-negative/5 p-2.5">
+                  <p className="text-[11px] text-ink-200">Delete this clip, all masks and exports?</p>
+                  <div className="flex gap-2">
+                    <Button variant="danger" onClick={() => { setDeleteId(null); onDelete(video.id); }}>Delete clip</Button>
+                    <Button variant="ghost" onClick={() => setDeleteId(null)}>Keep clip</Button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}

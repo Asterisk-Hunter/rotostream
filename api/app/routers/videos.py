@@ -10,6 +10,7 @@ from PIL import Image
 
 from .. import masks as mask_utils
 from ..jobs import get_job_manager
+from ..pipeline import clear_preview_cache
 from ..schemas import SessionOut, UploadOut, VideoOut, VideoStatus
 from ..settings import Settings, get_settings
 from ..storage import Workspace, get_workspace
@@ -18,7 +19,7 @@ from ..video import FFmpegError, extract_frames, probe, read_frame
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 
 CHUNK_BYTES = 1024 * 1024
-IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+IMMUTABLE = {"Cache-Control": "private, max-age=31536000, immutable"}
 
 
 # --------------------------------------------------------------------- helpers
@@ -49,6 +50,9 @@ def _resolve_session(workspace: Workspace, video_id: str, session_id: str | None
     resolved = session_id or workspace.latest_session_id(video_id)
     if resolved is None:
         raise HTTPException(status_code=404, detail="no tracking session exists for this video")
+    record = workspace.read_session_meta(video_id, resolved)
+    if record.get("status", "succeeded") != "succeeded":
+        raise HTTPException(status_code=409, detail="tracking session has not completed successfully")
     return resolved
 
 
@@ -63,6 +67,7 @@ def _extract_body(ctx, video_id: str, source: Path, settings: Settings) -> dict:
     """Decode to JPEG frames and record geometry. Runs on the job thread."""
     workspace = get_workspace()
     try:
+        ctx.check_cancelled()
         ctx.progress(0.05, "probing")
         info = probe(source)
         workspace.update_meta(
@@ -83,6 +88,7 @@ def _extract_body(ctx, video_id: str, source: Path, settings: Settings) -> dict:
             quality=settings.jpeg_quality,
             max_frames=settings.max_frames,
         )
+        ctx.check_cancelled()
         workspace.update_meta(
             video_id,
             status=VideoStatus.READY.value,
@@ -115,7 +121,17 @@ async def upload_video(file: UploadFile = File(...)) -> UploadOut:
             detail=f"unsupported extension {suffix!r}; allowed: {sorted(settings.allowed_extension_set)}",
         )
 
-    video_id = workspace.create_video(filename)
+    manager = get_job_manager()
+    job = manager.create("extract")
+    filename = filename.replace("\\", "/").rsplit("/", 1)[-1][:255]
+    try:
+        with workspace.operation_lock:
+            video_id = workspace.create_video(filename)
+            job.video_id = video_id
+    except BaseException:
+        manager.cancel(job.id)
+        await file.close()
+        raise
     destination = workspace.video_dir(video_id) / f"source{suffix}"
 
     written = 0
@@ -131,7 +147,8 @@ async def upload_video(file: UploadFile = File(...)) -> UploadOut:
                 handle.write(chunk)
         if written == 0:
             raise HTTPException(status_code=400, detail="uploaded file is empty")
-    except HTTPException:
+    except BaseException:
+        manager.cancel(job.id)
         workspace.delete_video(video_id)
         raise
     finally:
@@ -144,9 +161,10 @@ async def upload_video(file: UploadFile = File(...)) -> UploadOut:
         source=f"source{suffix}",
     )
 
-    manager = get_job_manager()
-    job = manager.create("extract", video_id=video_id)
-    manager.submit(job, lambda ctx: _extract_body(ctx, video_id, destination, settings))
+    def finish(job):
+        if job.status in {"cancelled", "failed"}:
+            workspace.update_meta(video_id, status="failed", error=job.error or "extraction cancelled")
+    manager.submit(job, lambda ctx: _extract_body(ctx, video_id, destination, settings), on_done=finish)
 
     return UploadOut(video=to_video_out(workspace.read_meta(video_id)), job_id=job.id)
 
@@ -164,15 +182,19 @@ def get_video(video_id: str) -> VideoOut:
 
 @router.delete("/{video_id}", status_code=204, summary="Delete a video and all its data")
 def delete_video(video_id: str) -> Response:
-    if not get_workspace().delete_video(video_id):
-        raise HTTPException(status_code=404, detail=f"unknown video {video_id}")
-    return Response(status_code=204)
+    with get_workspace().operation_lock:
+        if any(not job.done for job in get_job_manager().list(video_id=video_id)):
+            raise HTTPException(status_code=409, detail="cancel or finish this video's jobs before deleting it")
+        clear_preview_cache(video_id)
+        if not get_workspace().delete_video(video_id):
+            raise HTTPException(status_code=404, detail=f"unknown video {video_id}")
+        return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------- frames
 @router.get("/{video_id}/frames/{index}", summary="Working-resolution frame JPEG")
 def get_frame(video_id: str, index: int) -> FileResponse:
-    meta = require_video(video_id)
+    meta = require_ready_video(video_id)
     workspace = get_workspace()
     if not 0 <= index < int(meta.get("n_frames") or 0):
         raise HTTPException(status_code=404, detail=f"frame {index} out of range")

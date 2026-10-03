@@ -4,6 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,12 +29,17 @@ class Settings(BaseSettings):
     # --- frame extraction ---
     #: Working resolution: extracted frames are scaled so the long side is this.
     #: Masks are produced and exported at this resolution.
-    long_side: int = 960
-    max_frames: int = 900
-    jpeg_quality: int = 92
+    long_side: int = Field(default=960, ge=2, le=4096)
+    max_frames: int = Field(default=900, ge=1, le=10000)
+    jpeg_quality: int = Field(default=92, ge=1, le=100)
+    max_pending_jobs: int = Field(default=16, ge=1, le=1000)
+    job_history: int = Field(default=200, ge=1, le=10000)
+    preview_cache_size: int = Field(default=1, ge=1, le=8)
+    ffmpeg_timeout_s: int = Field(default=600, ge=1, le=3600)
+    max_source_pixels: int = Field(default=33177600, ge=1, le=132710400)
 
     # --- uploads ---
-    max_upload_mb: int = 512
+    max_upload_mb: int = Field(default=512, ge=1, le=4096)
     allowed_extensions: str = ".mp4,.mov,.m4v,.webm,.mkv,.avi"
 
     # --- http ---
@@ -41,7 +47,7 @@ class Settings(BaseSettings):
     #: flags it is launched with, so these exist so the port lives in one place.
     host: str = "127.0.0.1"
     #: 8010 rather than 8000 - see the note in .env.example.
-    port: int = 8010
+    port: int = Field(default=8010, ge=1, le=65535)
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     @property

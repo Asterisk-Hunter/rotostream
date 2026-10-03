@@ -62,8 +62,13 @@ def _palette_for(annotation_dir: Path) -> dict[tuple[int, int, int], int]:
     colours: set[tuple[int, int, int]] = set()
     for path in sorted(annotation_dir.glob("*.png")):
         with Image.open(path) as image:
-            frame = np.asarray(image.convert("RGB"), dtype=np.uint8)
-        colours.update(tuple(int(c) for c in colour) for colour in np.unique(frame.reshape(-1, 3), axis=0))
+            if image.mode == "P":
+                labels = np.unique(np.asarray(image))
+                table = image.getpalette()
+                colours.update(tuple(table[int(label) * 3:int(label) * 3 + 3]) for label in labels)
+            else:
+                frame = np.asarray(image.convert("RGB"), dtype=np.uint8)
+                colours.update(tuple(int(c) for c in colour) for colour in np.unique(frame.reshape(-1, 3), axis=0))
 
     colours.discard(BACKGROUND)
     if not colours:
@@ -84,6 +89,17 @@ def _masks_for(annotation_dir: Path, palette: dict[tuple[int, int, int], int]) -
     masks = np.zeros((len(paths), n_objects, height, width), dtype=bool)
     for index, path in enumerate(paths):
         with Image.open(path) as image:
+            if image.mode == "P":
+                if image.size != (width, height):
+                    raise ValueError(f"{path}: inconsistent annotation size")
+                labels = np.asarray(image)
+                table = image.getpalette()
+                for label in np.unique(labels):
+                    colour = tuple(table[int(label) * 3:int(label) * 3 + 3])
+                    object_id = palette.get(colour)
+                    if object_id is not None:
+                        masks[index, object_id - 1] = labels == label
+                continue
             frame = np.asarray(image.convert("RGB"), dtype=np.uint8)
         if (frame.shape[1], frame.shape[0]) != (width, height):
             raise ValueError(
@@ -116,6 +132,7 @@ class Davis2017:
     root: Path
     split: str = "val"
     resolution: str = "480p"
+    strict: bool = False
 
     def __post_init__(self) -> None:
         self.root = Path(self.root)
@@ -140,13 +157,19 @@ class Davis2017:
         if self.split == "all":
             return sorted(available)
 
-        for candidate in self.root.rglob(f"{self.split}.txt"):
+        candidates = list(self.root.rglob(f"{self.split}.txt"))
+        # The release contains BOTH 2016 (20 val clips) and 2017 (30 val clips).
+        # An arbitrary rglob order can silently run the wrong benchmark.
+        candidates.sort(key=lambda path: ("2017" not in path.parts, str(path)))
+        for candidate in candidates:
             listed = [
                 line.strip()
                 for line in candidate.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
             selected = [name for name in listed if name in available]
+            if self.strict and len(selected) != len(listed):
+                raise ValueError(f"{candidate}: split contains unavailable sequences")
             if selected:
                 # Some releases put train and val in the same folder; trust the file,
                 # but only for names that are actually present.
@@ -157,6 +180,8 @@ class Davis2017:
         # no way to recover the real split - this is a rough 30/rest guess, and the
         # caller is told so rather than being handed a silently wrong benchmark.
         ordered = sorted(available)
+        if self.strict:
+            raise FileNotFoundError(f"no official {self.split}.txt under {self.root}; refusing to guess a benchmark split")
         if self.split in {"val", "train"}:
             import warnings
 
@@ -206,6 +231,10 @@ class Davis2017:
                 f"{name}: {n_images} images but {masks.shape[0]} annotations; "
                 "the frame and annotation lists disagree"
             )
+        image_names = sorted(path.stem for path in image_dir.iterdir() if path.suffix.lower() in {".jpg", ".png"})
+        annotation_names = sorted(path.stem for path in annotation_dir.glob("*.png"))
+        if image_names != annotation_names:
+            raise ValueError(f"{name}: frame and annotation names disagree")
 
         return VideoSequence(
             name=name,

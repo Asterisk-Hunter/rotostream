@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
@@ -15,16 +16,13 @@ from ..pipeline import preview_mask, run_tracking
 from ..prompts import PromptError, to_prompt_set
 from ..schemas import JobOut, PreviewRequest, TrackRequest
 from ..settings import get_settings
-from ..storage import get_workspace
+from ..storage import get_workspace, utcnow
 from ..video import read_frame
 from .videos import require_ready_video
 
 router = APIRouter(prefix="/api", tags=["tracking"])
 
-_MODEL_HELP = (
-    "Implement it in api/app/models/sam2_memory.py and flip implemented=True in "
-    "info(); the contract is documented in api/app/models/base.py."
-)
+_MODEL_HELP = "Choose an available tracker from the model selector."
 
 
 def assert_model_usable(model_key: str) -> None:
@@ -38,9 +36,10 @@ def assert_model_usable(model_key: str) -> None:
         )
     if not info.implemented:
         reason = info.error or "not implemented yet"
+        hint = info.checkpoint_hint or _MODEL_HELP
         raise HTTPException(
             status_code=409,
-            detail=f"tracker {model_key!r} is not usable ({reason}). {_MODEL_HELP}",
+            detail=f"tracker {model_key!r} is not usable ({reason}). {hint}",
         )
 
 
@@ -57,48 +56,49 @@ def preview(video_id: str, payload: PreviewRequest) -> Response:
     Returns the overlay PNG directly and puts mask stats in headers, which keeps
     the interactive path to a single request per click.
     """
-    meta = require_ready_video(video_id)
-    settings = get_settings()
-    workspace = get_workspace()
-    model_key = payload.model or settings.default_model
-    assert_model_usable(model_key)
+    with get_workspace().operation_lock:
+        meta = require_ready_video(video_id)
+        settings = get_settings()
+        workspace = get_workspace()
+        model_key = payload.model or settings.default_model
+        assert_model_usable(model_key)
 
-    try:
-        prompt = to_prompt_set(payload.prompt)
-    except PromptError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            prompt = to_prompt_set(payload.prompt)
+        except PromptError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    n_frames = int(meta.get("n_frames") or 0)
-    if prompt.frame_index >= n_frames:
-        raise HTTPException(
-            status_code=422, detail=f"frame_index {prompt.frame_index} is beyond {n_frames} frames"
+        n_frames = int(meta.get("n_frames") or 0)
+        if prompt.frame_index >= n_frames:
+            raise HTTPException(
+                status_code=422, detail=f"frame_index {prompt.frame_index} is beyond {n_frames} frames"
+            )
+
+        try:
+            mask = preview_mask(
+                workspace=workspace,
+                settings=settings,
+                video_id=video_id,
+                prompt=prompt,
+                model_key=model_key,
+                checkpoint=payload.checkpoint,
+            )
+        except NotImplementedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ContractError as exc:
+            raise HTTPException(status_code=422, detail=f"tracker contract violation: {exc}") from exc
+
+        frame = read_frame(workspace.frames_dir(video_id), prompt.frame_index)
+        png = mask_utils.overlay_png_bytes(frame, mask)
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Mask-Area": str(int(mask.sum())),
+                "X-Mask-Ratio": f"{float(mask.mean()):.6f}",
+            },
         )
-
-    try:
-        mask = preview_mask(
-            workspace=workspace,
-            settings=settings,
-            video_id=video_id,
-            prompt=prompt,
-            model_key=model_key,
-            checkpoint=payload.checkpoint,
-        )
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ContractError as exc:
-        raise HTTPException(status_code=422, detail=f"tracker contract violation: {exc}") from exc
-
-    frame = read_frame(workspace.frames_dir(video_id), prompt.frame_index)
-    png = mask_utils.overlay_png_bytes(frame, mask)
-    return Response(
-        content=png,
-        media_type="image/png",
-        headers={
-            "Cache-Control": "no-store",
-            "X-Mask-Area": str(int(mask.sum())),
-            "X-Mask-Ratio": f"{float(mask.mean()):.6f}",
-        },
-    )
 
 
 # --------------------------------------------------------------------- tracking
@@ -109,48 +109,63 @@ def preview(video_id: str, payload: PreviewRequest) -> Response:
     summary="Start a tracking job",
 )
 def start_tracking(video_id: str, payload: TrackRequest) -> JobOut:
-    meta = require_ready_video(video_id)
-    settings = get_settings()
-    workspace = get_workspace()
-    model_key = payload.model or settings.default_model
-    assert_model_usable(model_key)
+    with get_workspace().operation_lock:
+        meta = require_ready_video(video_id)
+        settings = get_settings()
+        workspace = get_workspace()
+        model_key = payload.model or settings.default_model
+        assert_model_usable(model_key)
 
-    n_frames = int(meta.get("n_frames") or 0)
-    try:
-        prompt_sets = [to_prompt_set(prompt) for prompt in payload.prompts]
-    except PromptError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    for prompt in prompt_sets:
-        if prompt.frame_index >= n_frames:
-            raise HTTPException(
-                status_code=422,
-                detail=f"prompt frame_index {prompt.frame_index} is beyond {n_frames} frames",
+        n_frames = int(meta.get("n_frames") or 0)
+        try:
+            prompt_sets = [to_prompt_set(prompt) for prompt in payload.prompts]
+        except PromptError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        for prompt in prompt_sets:
+            if prompt.frame_index >= n_frames:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"prompt frame_index {prompt.frame_index} is beyond {n_frames} frames",
+                )
+        if len({prompt.frame_index for prompt in prompt_sets}) != len(prompt_sets):
+            raise HTTPException(status_code=422, detail="combine prompts for each frame into one prompt")
+
+        if payload.session_id:
+            raise HTTPException(status_code=409, detail="sessions are immutable; start a new tracking session")
+
+        manager = get_job_manager()
+        job = manager.create("track", video_id=video_id)
+        try:
+            session_id = workspace.create_session(video_id)
+            workspace.write_session_meta(video_id, session_id, {
+                "id": session_id, "video_id": video_id, "model": model_key,
+                "created_at": utcnow(), "status": "queued", "n_frames": n_frames,
+                "prompt_frames": sorted(prompt.frame_index for prompt in prompt_sets),
+            })
+
+            def finish(job):
+                if job.status != "succeeded":
+                    record = workspace.read_session_meta(video_id, session_id)
+                    record.update(status=job.status, cancelled=job.status == "cancelled", error=job.error)
+                    workspace.write_session_meta(video_id, session_id, record)
+
+            def track(ctx):
+                record = workspace.read_session_meta(video_id, session_id)
+                record["status"] = "running"
+                workspace.write_session_meta(video_id, session_id, record)
+                return run_tracking(
+                    ctx, workspace=workspace, settings=settings, video_id=video_id,
+                    session_id=session_id, prompts=prompt_sets, model_key=model_key,
+                    bidirectional=payload.bidirectional, checkpoint=payload.checkpoint,
+                )
+
+            manager.submit(
+                job, track, on_done=finish,
             )
-
-    if payload.session_id:
-        if not workspace.session_dir(video_id, payload.session_id).is_dir():
-            raise HTTPException(status_code=404, detail=f"unknown session {payload.session_id}")
-        session_id = payload.session_id
-    else:
-        session_id = workspace.create_session(video_id)
-
-    manager = get_job_manager()
-    job = manager.create("track", video_id=video_id)
-    manager.submit(
-        job,
-        lambda ctx: run_tracking(
-            ctx,
-            workspace=workspace,
-            settings=settings,
-            video_id=video_id,
-            session_id=session_id,
-            prompts=prompt_sets,
-            model_key=model_key,
-            bidirectional=payload.bidirectional,
-            checkpoint=payload.checkpoint,
-        ),
-    )
-    return JobOut(**job.to_dict())
+            return JobOut(**job.to_dict())
+        except BaseException:
+            manager.cancel(job.id)
+            raise
 
 
 # ------------------------------------------------------------------------- jobs
@@ -186,6 +201,7 @@ async def job_events(job_id: str, request: Request) -> StreamingResponse:
 
     async def stream():
         last: str | None = None
+        heartbeat = time.monotonic()
         while True:
             job = manager.get(job_id)
             if job is None:
@@ -195,6 +211,10 @@ async def job_events(job_id: str, request: Request) -> StreamingResponse:
             if encoded != last:
                 yield f"data: {encoded}\n\n"
                 last = encoded
+                heartbeat = time.monotonic()
+            elif time.monotonic() - heartbeat >= 15:
+                yield ": keepalive\n\n"
+                heartbeat = time.monotonic()
             if job.done:
                 yield "event: done\ndata: {}\n\n"
                 return

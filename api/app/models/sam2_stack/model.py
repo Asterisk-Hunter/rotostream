@@ -145,6 +145,8 @@ class MemoryStack(nn.Module):
         self.image_size = int(config.image_size)
         self.backbone_feature_sizes = [tuple(size) for size in vision.backbone_feature_sizes]
         self.max_object_pointers = int(config.max_object_pointers_in_encoder)
+        self.object_pointers_enabled = True
+        self.temporal_position_encoding_enabled = True
 
         # --- reused, frozen -------------------------------------------------
         self.vision_encoder = build_vision_encoder(vision)
@@ -259,6 +261,8 @@ class MemoryStack(nn.Module):
         ConvNeXt convention and keeps an untrained stack stable.
         """
         for name, module in self.named_modules():
+            if name == "vision_encoder" or name.startswith("vision_encoder."):
+                continue
             if isinstance(module, (nn.Linear, nn.Conv2d, nn.ConvTranspose2d)):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
                 if module.bias is not None:
@@ -316,10 +320,12 @@ class MemoryStack(nn.Module):
         embedding = self.shared_image_embedding(torch.stack([x_embed, y_embed], dim=-1))
         return embedding.permute(2, 0, 1).unsqueeze(0)
 
-    @torch.no_grad()
     def encode_frame(self, pixel_values: torch.Tensor) -> StackCaches:
         """Run the frozen encoder once and prepare every view the decoder needs."""
-        outputs = self.vision_encoder(pixel_values)
+        # Only the reused tower is frozen. The decoder's skip projections are
+        # contributed trainable layers, so they must retain their graph.
+        with torch.no_grad():
+            outputs = self.vision_encoder(pixel_values)
         levels = list(outputs.fpn_hidden_states)
         position = list(outputs.fpn_position_encoding)
 
@@ -420,14 +426,20 @@ class MemoryStack(nn.Module):
         memory_positions = torch.cat(
             [
                 slot.positions
-                + self.memory_temporal_positional_encoding[offset - 1].reshape(-1)
+                + (self.memory_temporal_positional_encoding[
+                    min(offset - 1, self.num_maskmem - 2)
+                ].reshape(-1)
+                   if self.temporal_position_encoding_enabled else 0)
                 for slot, offset in zip(slots, offsets)
             ],
             dim=0,
         )
 
-        pointers = self._collect_pointers(slots, offsets)
-        pointer_positions = self._pointer_positions(offsets)
+        if not self.object_pointers_enabled:
+            return memory, memory_positions, 0, [slot.frame_index for slot in slots]
+        pointer_offsets = [abs(frame_index - slot.frame_index) for slot in slots]
+        pointers = self._collect_pointers(slots, pointer_offsets)
+        pointer_positions = self._pointer_positions(pointer_offsets)
         memory = torch.cat([memory, pointers], dim=0)
         memory_positions = torch.cat([memory_positions, pointer_positions], dim=0)
         return memory, memory_positions, pointers.shape[0], [slot.frame_index for slot in slots]
@@ -437,7 +449,7 @@ class MemoryStack(nn.Module):
         pointers = torch.stack([slot.pointer for slot in slots], dim=0)  # (N, 256)
         if self.mem_dim < pointers.shape[-1]:
             splits = pointers.shape[-1] // self.mem_dim
-            pointers = pointers.view(len(slots), splits, self.mem_dim).permute(1, 0, 2).reshape(-1, self.mem_dim)
+            pointers = pointers.view(len(slots), splits, self.mem_dim).reshape(-1, self.mem_dim)
         return pointers
 
     def _pointer_positions(self, offsets: list[int]) -> torch.Tensor:
@@ -447,7 +459,7 @@ class MemoryStack(nn.Module):
         is *when* the frame was, which is exactly what this encodes.
         """
         count = len(offsets)
-        if not self.enable_temporal_pos_encoding_for_object_pointers:
+        if not self.enable_temporal_pos_encoding_for_object_pointers or not self.temporal_position_encoding_enabled:
             zeros = torch.zeros(count * 4, self.mem_dim, dtype=self.no_object_pointer.dtype,
                                 device=self.no_object_pointer.device)
             return zeros

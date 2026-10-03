@@ -1,0 +1,35 @@
+{
+    admin off
+    auto_https off
+}
+
+:80 {
+    # Credentials protect every path, including frames, SSE, downloads and the UI.
+    basic_auth {
+        {$ROTOSTREAM_AUTH_USER} {$ROTOSTREAM_AUTH_HASH}
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy same-origin
+        -Server
+    }
+
+    # Allow multipart overhead; the API enforces its configurable video byte limit.
+    request_body {
+        max_size 513MB
+    }
+
+    @api path /api/* /docs /docs/* /redoc /openapi.json
+    handle @api {
+        reverse_proxy api:8010 {
+            flush_interval -1
+        }
+    }
+
+    handle {
+        reverse_proxy web:3000
+    }
+}
+

@@ -33,6 +33,7 @@ including the key-side RoPE repeat when the bank holds more than one frame.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -49,6 +50,7 @@ SEED = 0
 ROPE_GRID = (8, 8)
 #: Above this, the difference is a bug rather than float32 reassociation.
 TOLERANCE = 1e-5
+COMPARISONS: list[dict] = []
 
 GREEN, RED, DIM, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[0m"
 
@@ -59,7 +61,12 @@ def compare(label: str, reference: torch.Tensor, built: torch.Tensor, tolerance:
         print(f"  {RED}FAIL{RESET}  {label}: shape {tuple(reference.shape)} vs {tuple(built.shape)}")
         return False
     difference = (reference - built).abs().max().item()
-    ok = difference <= tolerance
+    # Decoder logits accumulate many float32 reductions. Use an explicit
+    # scale-aware bound rather than accepting only an absolute maximum.
+    ok = torch.allclose(reference, built, atol=tolerance, rtol=tolerance)
+    COMPARISONS.append({"component": label, "shape": list(reference.shape),
+                        "max_absolute_difference": difference, "absolute_tolerance": tolerance,
+                        "relative_tolerance": tolerance, "dtype": str(reference.dtype), "passed": ok})
     tag = f"{GREEN}PASS{RESET}" if ok else f"{RED}FAIL{RESET}"
     print(f"  {tag}  {label}: max|diff| {difference:.3e}")
     return ok
@@ -69,6 +76,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--backbone", default="facebook/sam2.1-hiera-tiny", help="HF id to compare against")
     parser.add_argument("--tolerance", type=float, default=TOLERANCE)
+    parser.add_argument("--json", default=None, help="write machine-readable numerical evidence")
     args = parser.parse_args()
 
     from app.models.sam2_stack import MemoryStack
@@ -80,7 +88,8 @@ def main() -> int:
 
     config = Sam2VideoConfig.from_pretrained(args.backbone)
     config.memory_attention_rope_feat_sizes = list(ROPE_GRID)
-    reference = Sam2VideoModel.from_pretrained(args.backbone, config=config).eval()
+    reference = Sam2VideoModel.from_pretrained(args.backbone, config=config,
+                                               attn_implementation="eager").eval()
     built = MemoryStack(config).eval()
 
     print(f"backbone: {args.backbone}")
@@ -144,7 +153,72 @@ def main() -> int:
         args.tolerance,
     )
 
-    if keys_ok and encoder_ok and attention_ok:
+    # ------------------------------------------------------------ decoder + presence
+    # Both skip levels bypass memory attention, so exercise them independently.
+    print("\nmask decoder and presence head")
+    channels = reference.hidden_dim
+    image = torch.randn(1, channels, 8, 8)
+    image_positions = torch.randn_like(image)
+    sparse = torch.randn(1, 1, 2, channels)
+    dense = torch.randn_like(image)
+    high_resolution = [torch.randn(1, channels // 8, 32, 32),
+                       torch.randn(1, channels // 4, 16, 16)]
+    decoder_ok = True
+    for multimask in (False, True):
+        with torch.no_grad():
+            ref_masks, ref_iou, ref_tokens, ref_presence = reference.mask_decoder(
+                image_embeddings=image, image_positional_embeddings=image_positions,
+                sparse_prompt_embeddings=sparse, dense_prompt_embeddings=dense,
+                multimask_output=multimask, high_resolution_features=high_resolution,
+            )
+            got = built.mask_decoder(
+                image_embeddings=image, image_positional_embeddings=image_positions,
+                sparse_prompt_embeddings=sparse, dense_prompt_embeddings=dense,
+                multimask_output=multimask, high_resolution_features=high_resolution, image_size=128,
+            )
+        mode = "multi" if multimask else "single"
+        decoder_ok &= compare(f"{mode} raw mask logits", ref_masks, got.raw_low_res_masks, args.tolerance)
+        visible_masks = torch.where(ref_presence[..., None, None] > 0, ref_masks,
+                                    torch.full_like(ref_masks, -1024.0))
+        decoder_ok &= compare(f"{mode} mask logits", visible_masks, got.low_res_masks, args.tolerance)
+        decoder_ok &= compare(f"{mode} IoU scores", ref_iou, got.iou_scores, args.tolerance)
+        decoder_ok &= compare(f"{mode} presence logits", ref_presence, got.object_score_logits, args.tolerance)
+        best = ref_iou.argmax(dim=-1)
+        ref_selected = ref_tokens[0, 0, best[0, 0]].view(1, 1, channels)
+        decoder_ok &= compare(f"{mode} chosen pointer token", ref_selected, got.sam_tokens, args.tolerance)
+
+    print("\nocclusion embedding written into memory")
+    from app.models.sam2_stack import StackCaches
+    for appearing in (True, False):
+        object_logits = torch.tensor([[10.0 if appearing else -10.0]])
+        with torch.no_grad():
+            ref_memory, ref_memory_positions = reference._encode_new_memory(
+                pixel_features.flatten(2).permute(2, 0, 1), mask, object_logits, False,
+            )
+            got_memory, got_memory_positions = built.encode_memory(
+                StackCaches(image_embedding=pixel_features), mask, object_logits, False,
+            )
+        state = "visible" if appearing else "absent"
+        # The reference explicitly stores memory in bfloat16. Compare after that
+        # same documented quantisation; the built bank retains float32 in inference.
+        decoder_ok &= compare(f"{state} quantized spatial memory", ref_memory,
+                              got_memory.to(torch.bfloat16), args.tolerance)
+        decoder_ok &= compare(f"{state} memory positions", ref_memory_positions,
+                              got_memory_positions, args.tolerance)
+
+    success = keys_ok and encoder_ok and attention_ok and decoder_ok
+    if args.json:
+        path = Path(args.json)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"backbone": args.backbone, "seed": SEED,
+                                    "rope_grid": list(ROPE_GRID), "dtype": "float32", "device": "cpu",
+                                    "reference_attention_backend": "eager",
+                                    "weights_revision": getattr(config, "_commit_hash", None),
+                                    "torch_version": torch.__version__,
+                                    "missing_keys": list(missing), "unexpected_keys": list(unexpected),
+                                    "comparisons": COMPARISONS, "passed": success}, indent=2), encoding="utf-8")
+
+    if success:
         print(f"\n{GREEN}Parity holds.{RESET} The weights are the same weights.")
         return 0
     print(f"\n{RED}Parity FAILED.{RESET} See the numbers above.")

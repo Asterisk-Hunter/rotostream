@@ -112,7 +112,7 @@ def available() -> list[TrackerInfo]:
         try:
             cls = load_class(key)
             info = cls.info()
-            if info.name != key and not info.name:
+            if info.name != key:
                 info = TrackerInfo(**{**info.__dict__, "name": key})
             infos.append(info)
         except Exception as exc:  # noqa: BLE001 - surface any import failure to the UI

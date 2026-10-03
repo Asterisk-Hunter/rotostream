@@ -15,12 +15,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, replace
+from collections import OrderedDict
 from typing import Any, Sequence
 
 import numpy as np
 
 from . import masks as mask_utils
-from .jobs import JobContext
+from .jobs import JobContext, get_job_manager
 from .models import registry
 from .models.base import (
     ContractError,
@@ -109,7 +110,7 @@ def _instantiate(model_key: str, settings: Settings, checkpoint: str | None):
 # warm instance per (video, model, checkpoint) and reuse it. Access is serialised:
 # a single GPU cannot serve two overlapping forwards without thrashing VRAM.
 _preview_lock = threading.Lock()
-_preview_cache: dict[tuple, tuple[VideoObjectTracker, str]] = {}
+_preview_cache: OrderedDict[tuple, tuple[VideoObjectTracker, str]] = OrderedDict()
 
 
 def preview_mask(
@@ -127,7 +128,7 @@ def preview_mask(
     frame_index = min(max(prompt.frame_index, 0), frames.n_frames - 1)
     key = (video_id, model_key, checkpoint or "", settings.device)
 
-    with _preview_lock:
+    with get_job_manager().compute_slot(), _preview_lock:
         cached = _preview_cache.get(key)
         if cached is None:
             tracker = _instantiate(model_key, settings, checkpoint)
@@ -139,6 +140,9 @@ def preview_mask(
                 tracker.set_video(frames)
                 tracker.warmup()
         _preview_cache[key] = (tracker, video_id)
+        _preview_cache.move_to_end(key)
+        while len(_preview_cache) > settings.preview_cache_size:
+            _preview_cache.popitem(last=False)
 
         tracker.reset()
         result = tracker.add_prompt(_clamp(prompt, frame_index))
@@ -146,10 +150,15 @@ def preview_mask(
         return result.mask
 
 
-def clear_preview_cache() -> None:
+def clear_preview_cache(video_id: str | None = None) -> None:
     """Drop warm preview trackers (tests, or after a model checkpoint changes)."""
     with _preview_lock:
-        _preview_cache.clear()
+        if video_id is None:
+            _preview_cache.clear()
+        else:
+            for key in list(_preview_cache):
+                if key[0] == video_id:
+                    del _preview_cache[key]
 
 
 def run_tracking(
@@ -165,6 +174,11 @@ def run_tracking(
     checkpoint: str | None = None,
 ) -> dict[str, Any]:
     started = time.time()
+    ctx.check_cancelled()
+    # The worker already holds the shared compute gate. Release cached preview
+    # model references before loading this session's tracker so VRAM holds one
+    # model instance, including when the preview used a different tracker.
+    clear_preview_cache()
     meta = workspace.read_meta(video_id)
     frames = frame_source(workspace, video_id, meta)
     height, width = frames.shape
@@ -255,7 +269,9 @@ def run_tracking(
         "memory": outcome.memory,
         "checkpoint": checkpoint,
         "bidirectional": bidirectional,
+        "status": "succeeded",
     }
+    ctx.check_cancelled()
     workspace.write_session_meta(video_id, session_id, session_meta)
 
     return {

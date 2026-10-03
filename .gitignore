@@ -22,6 +22,7 @@ package-lock.json
 .env
 .env.local
 .env.*.local
+.env.production
 
 # ---- Runtime data (uploads, extracted frames, masks, exports) ----
 workspace/
@@ -33,6 +34,10 @@ datasets/
 *.pt
 *.ckpt
 checkpoints/
+runs/
+.tmp/
+.verification-*/
+backups/
 
 # ---- Generated video output (brag compositions, renders) ----
 brag-output/

@@ -1,0 +1,67 @@
+name: rotostream
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 75s
+    environment:
+      ROTOSTREAM_WORKSPACE_DIR: /workspace
+      ROTOSTREAM_DEVICE: cpu
+      ROTOSTREAM_DEFAULT_MODEL: naive
+      ROTOSTREAM_MAX_UPLOAD_MB: ${ROTOSTREAM_MAX_UPLOAD_MB:-512}
+      ROTOSTREAM_MAX_FRAMES: ${ROTOSTREAM_MAX_FRAMES:-900}
+      ROTOSTREAM_LONG_SIDE: ${ROTOSTREAM_LONG_SIDE:-720}
+      ROTOSTREAM_CORS_ORIGINS: ""
+    volumes:
+      - workspace:/workspace
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    mem_limit: 4g
+    cpus: 2
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ""
+    init: true
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    mem_limit: 512m
+
+  gateway:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      ROTOSTREAM_AUTH_USER: ${ROTOSTREAM_AUTH_USER:-editor}
+      ROTOSTREAM_AUTH_HASH: ${ROTOSTREAM_AUTH_HASH:?Set a bcrypt password hash in .env.production; see docs/DEPLOYMENT.md}
+    ports:
+      - "${ROTOSTREAM_BIND_ADDRESS:-127.0.0.1}:${ROTOSTREAM_GATEWAY_PORT:-8080}:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+
+volumes:
+  workspace:
+  caddy_data:
+  caddy_config:
+

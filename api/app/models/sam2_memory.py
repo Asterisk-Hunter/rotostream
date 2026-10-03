@@ -115,6 +115,9 @@ class MemoryAttentionTracker(TrainableTracker):
         memory_bank_size: int | None = None,
         reference_weights: bool = True,
         gradient_checkpointing: bool = True,
+        presence_head: bool = True,
+        object_pointers: bool = True,
+        temporal_position_encoding: bool = True,
     ):
         """``memory_bank_size`` caps how many recent frames are attended to.
 
@@ -126,6 +129,11 @@ class MemoryAttentionTracker(TrainableTracker):
         self.backbone_name = str(backbone)
         self.memory_bank_size = memory_bank_size
         self.reference_weights = bool(reference_weights)
+        if memory_bank_size is not None and not 1 <= memory_bank_size <= 8:
+            raise ValueError("memory_bank_size must be between 1 and 8")
+        self.presence_head = bool(presence_head)
+        self.object_pointers = bool(object_pointers)
+        self.temporal_position_encoding = bool(temporal_position_encoding)
         #: Recompute activations in the backward pass while training (see
         #: ``sam2_stack.model.MemoryStack.set_gradient_checkpointing``).
         self.gradient_checkpointing = bool(gradient_checkpointing)
@@ -144,6 +152,10 @@ class MemoryAttentionTracker(TrainableTracker):
     # ------------------------------------------------------------------ metadata
     @classmethod
     def info(cls) -> TrackerInfo:
+        import importlib.util
+
+        missing = [name for name in ("torch", "torchvision", "transformers")
+                   if importlib.util.find_spec(name) is None]
         return TrackerInfo(
             name=cls.key,
             description=(
@@ -153,7 +165,8 @@ class MemoryAttentionTracker(TrainableTracker):
             ),
             uses_memory=True,
             trainable=True,
-            implemented=True,
+            implemented=not missing,
+            error=f"Optional model dependencies missing: {', '.join(missing)}. Install api/requirements-model.txt." if missing else "",
             checkpoint_hint=cls.checkpoint_hint,
         )
 
@@ -175,29 +188,56 @@ class MemoryAttentionTracker(TrainableTracker):
         self.stack = MemoryStack(self.config).to(self.device)
 
         if checkpoint:
-            blob = torch.load(Path(checkpoint), map_location="cpu", weights_only=False)
+            blob = torch.load(Path(checkpoint), map_location="cpu", weights_only=True)
+            if not isinstance(blob, dict):
+                raise ValueError("checkpoint must contain a named tensor state dictionary")
             state = blob.get("weights", blob)
             if isinstance(state, dict) and state.get("kind") == "params":
                 raise FileNotFoundError(
                     "this checkpoint stores a flat parameter list; re-save it from a "
                     "tracker that provides state_dict() so the layers can be matched"
                 )
+            if isinstance(state, dict) and state.get("kind") == "state_dict":
+                state = state["state"]
+            if not isinstance(state, dict):
+                raise ValueError("checkpoint weights must be a named tensor state dictionary")
+            if not all(isinstance(name, str) and torch.is_tensor(value) for name, value in state.items()):
+                raise ValueError("checkpoint state must map parameter names to tensors")
+            # Training checkpoints intentionally omit the frozen vision tower.
+            # Restore that tower from the released checkpoint before applying the
+            # learned stack, otherwise inference would silently use random Hiera.
+            has_encoder = any(name.startswith("vision_encoder.") for name in state)
+            if not has_encoder:
+                self.stack.load_reference_weights(self.backbone_name)
             missing, unexpected = self.stack.load_state_dict(state, strict=False)
+            invalid_missing = [name for name in missing if has_encoder or not name.startswith("vision_encoder.")]
+            if invalid_missing or unexpected:
+                raise ValueError(
+                    f"checkpoint does not match {self.backbone_name}: "
+                    f"missing stack keys {invalid_missing[:5]}, unexpected keys {list(unexpected)[:5]}"
+                )
             self._weight_report = {"missing": list(missing), "unexpected": list(unexpected)}
         elif self.reference_weights:
             missing, unexpected = self.stack.load_reference_weights(self.backbone_name)
             self._weight_report = {"missing": missing, "unexpected": unexpected}
         else:
+            # "From scratch" applies to the contributed memory stack. The
+            # reused frozen Hiera tower must still start from pretrained weights.
+            self.stack.load_reference_weights(self.backbone_name)
             self.stack.init_weights()
 
         self.stack.eval()
+        self.stack.mask_decoder.presence_head_enabled = self.presence_head
+        self.stack.object_pointers_enabled = self.object_pointers
+        self.stack.temporal_position_encoding_enabled = self.temporal_position_encoding
         for parameter in self.stack.vision_encoder.parameters():
             parameter.requires_grad = False
 
         self.memory_bank_size = int(
             self.memory_bank_size or max(1, self.stack.num_maskmem - 1)
         )
-        self._bank = MemoryBank(self.stack.num_maskmem)
+        # Budget changes select slots, never change the learned temporal table.
+        self._bank = MemoryBank(self.memory_bank_size + 1)
         self._image_positions = self.stack.get_image_wide_positional_embeddings().to(self.device)
         self._cache = OrderedDict()
 
@@ -224,6 +264,8 @@ class MemoryAttentionTracker(TrainableTracker):
         """Segment the prompted frame and bank it, unconditioned on memory."""
         self._require_ready()
         index = int(prompts.frame_index)
+        if prompts.mask is not None:
+            return self._add_mask_prompt(prompts)
         points, labels, boxes = self._prompt_tensors(prompts)
 
         caches = self._encode_image(index)
@@ -259,6 +301,37 @@ class MemoryAttentionTracker(TrainableTracker):
             object_present=present,
             extras={"prompted": True, "prompt_index": index},
         )
+
+    def _add_mask_prompt(self, prompts: PromptSet) -> FrameResult:
+        """Use the supplied segmentation directly, as SAM 2's mask-input path does."""
+        import torch
+        import torch.nn.functional as F
+
+        if prompts.mask.shape != self._frames.shape:
+            raise ValueError("mask prompt must match the source frame resolution")
+        index = prompts.frame_index
+        caches = self._encode_image(index)
+        mask = torch.tensor(np.array(prompts.mask), dtype=torch.float32, device=self.device)[None, None]
+        mask = F.interpolate(mask, size=(self.stack.image_size, self.stack.image_size), mode="nearest")
+        logits = mask[0, 0] * 20.0 - 10.0
+        present = bool(prompts.mask.any())
+        object_logits = torch.tensor([10.0 if present else -10.0], device=self.device)
+        decoded = self.stack.decode(
+            caches, self.stack.trunk_features(caches), self._image_positions,
+            None, None, None, self.stack.mask_downsample(mask), multimask=False,
+        )
+        pointer = self.stack.object_pointer(decoded.sam_tokens[0, 0], decoded.object_score_logits[0, 0] > 0)
+        if not present:
+            pointer = self.stack.no_object_pointer.view(-1)
+        self._update_memory(
+            index, caches=caches, high_res_masks=logits, object_score_logits=object_logits,
+            sam_token=decoded.sam_tokens[0, 0], present=present,
+            featured=True, conditioning=True, from_points=False, pointer=pointer,
+        )
+        if index not in self._prompted:
+            self._prompted.append(index)
+        return FrameResult(mask=np.array(prompts.mask), score=1.0, object_present=present,
+                           extras={"prompted": True, "prompt_index": index, "prompt_mode": "mask"})
 
     @_inference
     def propagate(self, frame_index: int, direction: Direction) -> FrameResult:
@@ -470,7 +543,7 @@ class MemoryAttentionTracker(TrainableTracker):
         from .sam2_stack import resize_frames
 
         rgb = self._frames[frame_index]  # type: ignore[index]
-        pixel_values = resize_frames(torch.as_tensor(np.ascontiguousarray(rgb)), self.stack.image_size)
+        pixel_values = resize_frames(torch.tensor(np.array(rgb, copy=True)), self.stack.image_size)
         pixel_values = pixel_values.to(self.device)
 
         def run() -> Any:
@@ -494,15 +567,18 @@ class MemoryAttentionTracker(TrainableTracker):
 
     def _update_memory(self, frame_index: int, *, caches: Any, high_res_masks: Any,
                        object_score_logits: Any, sam_token: Any, present: bool,
-                       featured: bool, conditioning: bool) -> None:
+                       featured: bool, conditioning: bool, from_points: bool | None = None,
+                       pointer: Any = None) -> None:
         """Bank this frame so the next step can attend to it."""
         from .sam2_stack import MemorySlot
 
         if not featured:
             return
         mask = high_res_masks.view(1, 1, *high_res_masks.shape[-2:])
-        features, positions = self._encode_memory(caches, mask, object_score_logits, from_points=conditioning)
-        pointer = self.stack.object_pointer(sam_token, object_score_logits > 0)
+        features, positions = self._encode_memory(caches, mask, object_score_logits,
+                                                 from_points=conditioning if from_points is None else from_points)
+        if pointer is None:
+            pointer = self.stack.object_pointer(sam_token, object_score_logits > 0)
         self._bank.store(
             MemorySlot(
                 frame_index=int(frame_index),

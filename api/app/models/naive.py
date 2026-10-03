@@ -85,6 +85,24 @@ class NaiveColorTracker(VideoObjectTracker):
         self._require_video()
         assert self._frames is not None
 
+        if prompts.mask is not None:
+            mask = prompts.mask
+            if mask.shape != self._frames.shape or not mask.any():
+                raise ContractError("a colour mask prompt must match the frame and contain foreground")
+            # Fit the same frozen colour baseline from the supplied object region.
+            # The prompted frame stays exact; subsequent frames use the ordinary
+            # colour segmentation path, so GT masks do not leak into propagation.
+            lab = self._to_lab(self._frames[prompts.frame_index])
+            self._seed_lab = np.median(lab[mask], axis=0)
+            distance = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
+            y, x = np.unravel_index(int(distance.argmax()), mask.shape)
+            self._positives = [PointPrompt(float(x), float(y), True)]
+            self._negatives = []
+            self._prompt_frame = prompts.frame_index
+            self._ref_area = float(mask.sum())
+            self._last_score = 1.0
+            return FrameResult(mask=np.array(mask), score=1.0, object_present=True)
+
         positives = list(prompts.positive_points)
         if not positives and prompts.box is not None:
             box = prompts.box

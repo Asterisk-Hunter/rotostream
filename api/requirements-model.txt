@@ -1,0 +1,5 @@
+# Optional neural tracker. Install the appropriate torch/torchvision pair first:
+# https://pytorch.org/get-started/locally/
+transformers==4.57.6
+safetensors>=0.6,<1
+huggingface-hub>=0.34,<1

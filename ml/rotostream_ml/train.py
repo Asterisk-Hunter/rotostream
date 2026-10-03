@@ -431,7 +431,13 @@ class Trainer:
             "weights": capture_state(self.tracker),
             "optimizer": self.optimizer.state_dict(),
             "torch_rng": self.torch.get_rng_state(),
-            "numpy_rng": np.random.get_state(),
+            "numpy_rng": {
+                "algorithm": np.random.get_state()[0],
+                "keys": np.random.get_state()[1].tolist(),
+                "position": np.random.get_state()[2],
+                "has_gauss": np.random.get_state()[3],
+                "cached_gaussian": np.random.get_state()[4],
+            },
             "python_rng": random.getstate(),
         }
         self.torch.save(state, path)
@@ -441,7 +447,7 @@ class Trainer:
     def resume(self, path: str | Path) -> None:
         """Restore a run. Called after ``load_tracker`` so weights exist."""
         self._require_optimizer()
-        blob = self.torch.load(Path(path), map_location="cpu", weights_only=False)
+        blob = self.torch.load(Path(path), map_location="cpu", weights_only=True)
         restore_state(self.tracker, blob["weights"])
         try:
             self.optimizer.load_state_dict(blob["optimizer"])
@@ -450,7 +456,9 @@ class Trainer:
         self._step = int(blob.get("step", 0))
         self._epoch = int(blob.get("epoch", 0))
         self.torch.set_rng_state(blob["torch_rng"])
-        np.random.set_state(blob["numpy_rng"])
+        numpy_rng = blob["numpy_rng"]
+        np.random.set_state((numpy_rng["algorithm"], np.asarray(numpy_rng["keys"], dtype=np.uint32),
+                             numpy_rng["position"], numpy_rng["has_gauss"], numpy_rng["cached_gaussian"]))
         random.setstate(blob["python_rng"])
         print(f"resumed {path} at step {self._step}")
 
@@ -555,6 +563,9 @@ def dry_run(tracker: TrainableTracker, dataset: SequenceDataset, config: TrainCo
         if not loss.requires_grad:
             print("\nFAIL: loss does not require grad - the graph is detached somewhere")
             return 1
+        if not torch.isfinite(loss).all():
+            print("\nFAIL: training loss is not finite")
+            return 1
         loss.backward()
         norms = {
             name: float(param.grad.norm())
@@ -582,7 +593,7 @@ def dry_run(tracker: TrainableTracker, dataset: SequenceDataset, config: TrainCo
     print(
         "\nPASS: the training path is wired up. "
         f"loss {losses[0]:.4f} -> {losses[-1]:.4f}, "
-        f"gradients flowing through {len(trainer.params)} tensors."
+        f"non-zero gradients in {len(with_grad)}/{len(trainer.params)} trainable tensors."
     )
     return 0
 

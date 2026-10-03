@@ -30,12 +30,14 @@ ExportKind = Literal["alpha_webm", "overlay_mp4", "cutout_zip", "mask_zip", "mas
 class PointIn(BaseModel):
     """A click in pixel coordinates of the frame it belongs to."""
 
-    x: float
-    y: float
+    model_config = ConfigDict(allow_inf_nan=False)
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
     positive: bool = True
 
 
 class BoxIn(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     x0: float
     y0: float
     x1: float
@@ -48,10 +50,17 @@ class BoxIn(BaseModel):
             raise ValueError("box has zero width")
         return v
 
+    @field_validator("y1")
+    @classmethod
+    def _non_degenerate_y(cls, v: float, info) -> float:
+        if abs(v - info.data.get("y0", 0.0)) < 1.0:
+            raise ValueError("box has zero height")
+        return v
+
 
 class PromptIn(BaseModel):
     frame_index: int = Field(ge=0)
-    points: list[PointIn] = Field(default_factory=list)
+    points: list[PointIn] = Field(default_factory=list, max_length=128)
     box: BoxIn | None = None
 
     @field_validator("points")
@@ -65,12 +74,12 @@ class PromptIn(BaseModel):
 
 # ------------------------------------------------------------------- requests
 class TrackRequest(BaseModel):
-    prompts: list[PromptIn] = Field(min_length=1)
+    prompts: list[PromptIn] = Field(min_length=1, max_length=900)
     model: str | None = None
     checkpoint: str | None = None
     #: Track forwards and backwards from the prompted frames.
     bidirectional: bool = True
-    session_id: str | None = None
+    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class PreviewRequest(BaseModel):
@@ -83,7 +92,7 @@ class PreviewRequest(BaseModel):
 
 class ExportRequest(BaseModel):
     kind: ExportKind
-    session_id: str | None = None
+    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
     #: For kind="replace_bg".
     background: Literal["blur", "black", "white", "green"] = "blur"
     blur_radius: int = Field(default=24, ge=1, le=128)
@@ -145,6 +154,8 @@ class SessionOut(BaseModel):
     absent_frames: list[int] = Field(default_factory=list)
     elapsed_s: float = 0.0
     cancelled: bool = False
+    status: JobStatus = JobStatus.SUCCEEDED
+    error: str | None = None
     scores: list[FrameScoreOut] = Field(default_factory=list)
     memory: dict[str, Any] = Field(default_factory=dict)
 

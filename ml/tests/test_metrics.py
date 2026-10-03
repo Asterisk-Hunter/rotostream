@@ -326,3 +326,17 @@ def test_matches_the_skimage_reference(seed, bound_th):
     ours = boundary_f(pred, gt, bound_th)
     theirs = _reference_boundary_f(pred, gt, bound_th)
     assert ours == pytest.approx(theirs, abs=1e-12)
+
+
+@pytest.mark.parametrize("radius", [0, 1, 3, 8])
+@pytest.mark.parametrize("seed", [13, 28])
+def test_distance_dilation_matches_disk_reference_on_sparse_boundaries(radius, seed):
+    """Sparse edge-touching shapes exercise disk distances and image borders."""
+    pytest.importorskip("skimage")
+    rng = np.random.default_rng(seed)
+    gt = np.zeros((96, 112), dtype=bool)
+    gt[0:48, :20] = True
+    gt[70:90, 105:] = True
+    pred = np.roll(gt, shift=int(rng.integers(2, 9)), axis=1)
+    assert boundary_f(pred, gt, tolerance=radius) == pytest.approx(
+        _reference_boundary_f(pred, gt, bound_th=radius if radius else 0), abs=1e-12)

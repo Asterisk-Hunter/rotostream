@@ -7,9 +7,9 @@ import { ExportPanel, MemoryPanel, PromptPanel, TrackPanel } from "@/components/
 import { ProjectRail, type UploadState } from "@/components/ProjectRail";
 import { Timeline } from "@/components/Timeline";
 import { AlertIcon, FilmIcon } from "@/components/icons";
-import { Badge, EmptyState, Spinner, StatusDot } from "@/components/ui";
+import { Badge, Button, EmptyState, Spinner, StatusDot } from "@/components/ui";
 import { useJob } from "@/hooks/useJob";
-import { api, assetUrl } from "@/lib/api";
+import { ApiError, api, assetUrl } from "@/lib/api";
 import {
   type BackgroundMode,
   type ExportKind,
@@ -55,15 +55,18 @@ async function fetchClip(videoId: string): Promise<Clip> {
   if (record.status !== "ready") {
     return { id: videoId, video: record, session: null, exports: [] };
   }
-  const [sessionResult, exportResult] = await Promise.allSettled([
-    api.latestSession(record.id),
+  const [session, exports] = await Promise.all([
+    api.latestSession(record.id).catch((cause: unknown) => {
+      if (cause instanceof ApiError && cause.status === 404) return null;
+      throw cause;
+    }),
     api.listExports(record.id),
   ]);
   return {
     id: videoId,
     video: record,
-    session: sessionResult.status === "fulfilled" ? sessionResult.value : null,
-    exports: exportResult.status === "fulfilled" ? exportResult.value : [],
+    session,
+    exports,
   };
 }
 
@@ -80,6 +83,7 @@ export function Studio() {
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewRequestKey, setPreviewRequestKey] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   const [exportKind, setExportKind] = useState<ExportKind>("alpha_webm");
@@ -92,9 +96,13 @@ export function Studio() {
   const [trackJobId, setTrackJobId] = useState<string | null>(null);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const [trackSubmitting, setTrackSubmitting] = useState(false);
+  const [exportSubmitting, setExportSubmitting] = useState(false);
+  const selectedIdRef = useRef<string | null>(null);
+  const submittingRef = useRef({ track: false, export: false, upload: false });
 
   const previewUrlRef = useRef<string | null>(null);
-  const handledExtractRef = useRef<string | null>(null);
   const extractJob = useJob(extractJobId);
   const trackJob = useJob(trackJobId);
   const exportJob = useJob(exportJobId);
@@ -132,13 +140,17 @@ export function Studio() {
         ]);
         if (cancelled) return;
         setHealth(healthPayload);
+        setBootError(null);
         setModels(modelList);
         setVideos(videoList);
         const preferred =
           modelList.find((entry) => entry.is_default && entry.implemented) ??
           modelList.find((entry) => entry.implemented);
         setModel(preferred?.name ?? healthPayload.default_model);
-        if (videoList.length > 0) setSelectedId(videoList[0].id);
+        if (videoList.length > 0 && !selectedIdRef.current) {
+          selectedIdRef.current = videoList[0].id;
+          setSelectedId(videoList[0].id);
+        }
       } catch (cause) {
         if (cancelled) return;
         setBootError(
@@ -151,88 +163,65 @@ export function Studio() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reload]);
 
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
-    void (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
       try {
         const next = await fetchClip(selectedId);
-        if (!cancelled) setClip(next);
-      } catch (cause) {
-        if (!cancelled) setBootError(cause instanceof Error ? cause.message : String(cause));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId]);
-
-  // ------------------------------------------- reload once extraction finishes
-  useEffect(() => {
-    const job = extractJob.job;
-    if (!job || !extractJob.done) return;
-    // Job identity changes on every progress tick; this ref makes the refresh
-    // happen exactly once per finished extraction.
-    if (handledExtractRef.current === job.id) return;
-    handledExtractRef.current = job.id;
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [list, next] = await Promise.all([
-          api.listVideos(),
-          selectedId ? fetchClip(selectedId) : Promise.resolve(null),
-        ]);
         if (cancelled) return;
-        setVideos(list);
-        if (next) setClip(next);
+        setClip(next);
+        setVideos((list) => list.map((entry) => entry.id === next.id ? next.video : entry));
+        // Extraction may have started before a reload, without a known job ID.
+        if (next.video.status === "uploaded" || next.video.status === "extracting") {
+          timer = setTimeout(() => void load(), 1000);
+        }
       } catch (cause) {
-        if (!cancelled) setBootError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) {
+          setBootError(cause instanceof Error ? cause.message : String(cause));
+          timer = setTimeout(() => void load(), 3000);
+        }
       }
-    })();
+    };
+    void load();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [extractJob.done, extractJob.job, selectedId]);
+  }, [selectedId, reload]);
 
   // ---------------------------------------------- adopt the session after a run
   const trackStatus = trackJob.job?.status;
   useEffect(() => {
-    if (trackStatus !== "succeeded" || !selectedId) return;
+    if (trackStatus !== "succeeded" || !selectedId || trackJob.job?.video_id !== selectedId) return;
     let cancelled = false;
     void (async () => {
       try {
-        const [sessionResult, exportResult, list] = await Promise.allSettled([
-          api.latestSession(selectedId),
-          api.listExports(selectedId),
+        const [next, list] = await Promise.all([
+          fetchClip(selectedId),
           api.listVideos(),
         ]);
         if (cancelled) return;
-        if (list.status === "fulfilled") setVideos(list.value);
+        setVideos(list);
         setClip((current) =>
-          current && current.id === selectedId
-            ? {
-                ...current,
-                session: sessionResult.status === "fulfilled" ? sessionResult.value : null,
-                exports: exportResult.status === "fulfilled" ? exportResult.value : [],
-              }
-            : current,
+          current && current.id === selectedId ? next : current,
         );
-      } catch {
-        /* the tracking result stays visible even if this refresh fails */
+      } catch (cause) {
+        if (!cancelled) setBootError(cause instanceof Error ? cause.message : String(cause));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [trackStatus, selectedId]);
+  }, [trackStatus, trackJob.job?.video_id, selectedId]);
 
   // -------------------------------------------------- refresh the exports list
   const exportStatus = exportJob.job?.status;
   useEffect(() => {
-    if (exportStatus !== "succeeded" || !selectedId) return;
+    if (exportStatus !== "succeeded" || !selectedId || exportJob.job?.video_id !== selectedId) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -241,14 +230,14 @@ export function Studio() {
         setClip((current) =>
           current && current.id === selectedId ? { ...current, exports: next } : current,
         );
-      } catch {
-        /* ignore: the user can hit refresh */
+      } catch (cause) {
+        if (!cancelled) setBootError(cause instanceof Error ? cause.message : String(cause));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [exportStatus, selectedId]);
+  }, [exportStatus, exportJob.job?.video_id, selectedId]);
 
   // ------------------------------------------------------------ derived state
   const video = clip && clip.id === selectedId ? clip.video : null;
@@ -269,7 +258,7 @@ export function Studio() {
 
   // Identifies exactly which frame + prompt set an overlay belongs to.
   const previewKey =
-    video && currentPoints.length > 0 ? `${video.id}#${frameIndex}#${promptSignature}` : null;
+    video && currentPoints.length > 0 ? `${video.id}#${model}#${frameIndex}#${promptSignature}` : null;
 
   const freshPreview = preview && previewKey !== null && preview.key === previewKey ? preview : null;
 
@@ -277,15 +266,18 @@ export function Studio() {
   useEffect(() => {
     if (!previewKey || !ready || !video) return;
     let cancelled = false;
+    const controller = new AbortController();
 
     const timer = setTimeout(() => {
       void (async () => {
         setPreviewBusy(true);
+        setPreviewRequestKey(previewKey);
         try {
           const next = await api.previewMask(
             video.id,
             { frame_index: frameIndex, points: currentPoints, box: null },
             model || undefined,
+            controller.signal,
           );
           if (cancelled) {
             URL.revokeObjectURL(next.url);
@@ -305,6 +297,7 @@ export function Studio() {
 
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [previewKey, ready, video, frameIndex, currentPoints, model, releasePreview]);
@@ -313,7 +306,7 @@ export function Studio() {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
+      if (target && (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))) return;
       if (!ready || !video) return;
       if (event.key === "ArrowRight") {
         setFrameIndex((index) => Math.min(video.n_frames - 1, index + 1));
@@ -331,13 +324,19 @@ export function Studio() {
   /** Selecting a clip is an event, so the per-clip edit state resets here. */
   const beginClip = useCallback(
     (videoId: string) => {
+      if (selectedIdRef.current === videoId) return;
+      selectedIdRef.current = videoId;
       setSelectedId(videoId);
       setFrameIndex(0);
       setPrompts([]);
       setEditing(false);
       setPreviewError(null);
+      setPreviewBusy(false);
+      setTrackSubmitting(false);
+      setExportSubmitting(false);
       setExtractJobId(null);
       setTrackJobId(null);
+      setExportJobId(null);
       releasePreview();
     },
     [releasePreview],
@@ -345,6 +344,8 @@ export function Studio() {
 
   const handleUpload = useCallback(
     async (file: File) => {
+      if (submittingRef.current.upload) return;
+      submittingRef.current.upload = true;
       setUpload({ active: true, progress: 0, error: null, filename: file.name });
       try {
         const result = await api.uploadVideo(file, (fraction) =>
@@ -361,6 +362,8 @@ export function Studio() {
           filename: file.name,
           error: cause instanceof Error ? cause.message : String(cause),
         });
+      } finally {
+        submittingRef.current.upload = false;
       }
     },
     [refreshVideos, beginClip],
@@ -371,12 +374,17 @@ export function Studio() {
       try {
         await api.deleteVideo(videoId);
         setVideos((list) => list.filter((entry) => entry.id !== videoId));
-        if (selectedId === videoId) setSelectedId(null);
+        if (selectedIdRef.current === videoId) {
+          selectedIdRef.current = null;
+          setSelectedId(null);
+          setPrompts([]);
+          releasePreview();
+        }
       } catch (cause) {
         setBootError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [selectedId],
+    [releasePreview],
   );
 
   const addPoint = useCallback(
@@ -418,36 +426,45 @@ export function Studio() {
   const clearAll = useCallback(() => {
     setEditing(false);
     setPrompts([]);
+    setPreviewError(null);
   }, []);
 
   const handleTrack = useCallback(async () => {
-    if (!video || prompts.length === 0) return;
+    if (!video || prompts.length === 0 || submittingRef.current.track || trackJob.active) return;
+    submittingRef.current.track = true;
+    setTrackSubmitting(true);
     try {
       const job = await api.startTracking(video.id, {
         prompts,
         model: model || undefined,
         bidirectional,
       });
+      if (selectedIdRef.current !== video.id) return;
       // Drop back to session overlays while the run is in flight: the freshly
       // tracked masks replace them the moment the job succeeds.
       setEditing(false);
       setTrackJobId(job.id);
     } catch (cause) {
-      setBootError(cause instanceof Error ? cause.message : String(cause));
+      if (selectedIdRef.current === video.id) setBootError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      submittingRef.current.track = false;
+      if (selectedIdRef.current === video.id) setTrackSubmitting(false);
     }
-  }, [video, prompts, model, bidirectional]);
+  }, [video, prompts, model, bidirectional, trackJob.active]);
 
   const handleCancel = useCallback(async () => {
     if (!trackJobId) return;
     try {
       await api.cancelJob(trackJobId);
-    } catch {
-      /* the job may already have finished */
+    } catch (cause) {
+      setBootError(cause instanceof Error ? cause.message : String(cause));
     }
   }, [trackJobId]);
 
   const handleExport = useCallback(async () => {
-    if (!video) return;
+    if (!video || !session || submittingRef.current.export || exportJob.active) return;
+    submittingRef.current.export = true;
+    setExportSubmitting(true);
     try {
       const job = await api.startExport(video.id, {
         kind: exportKind,
@@ -455,11 +472,14 @@ export function Studio() {
         background,
         blur_radius: blurRadius,
       });
-      setExportJobId(job.id);
+      if (selectedIdRef.current === video.id) setExportJobId(job.id);
     } catch (cause) {
-      setBootError(cause instanceof Error ? cause.message : String(cause));
+      if (selectedIdRef.current === video.id) setBootError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      submittingRef.current.export = false;
+      if (selectedIdRef.current === video.id) setExportSubmitting(false);
     }
-  }, [video, exportKind, session, background, blurRadius]);
+  }, [video, exportKind, session, background, blurRadius, exportJob.active]);
 
   const refreshExports = useCallback(async () => {
     if (!selectedId) return;
@@ -468,8 +488,8 @@ export function Studio() {
       setClip((current) =>
         current && current.id === selectedId ? { ...current, exports: next } : current,
       );
-    } catch {
-      /* ignore */
+    } catch (cause) {
+      setBootError(cause instanceof Error ? cause.message : String(cause));
     }
   }, [selectedId]);
 
@@ -521,9 +541,11 @@ export function Studio() {
       </header>
 
       {bootError && (
-        <div className="flex items-start gap-2 border-b border-negative/30 bg-negative/10 px-4 py-2 text-[11px] text-negative">
+        <div role="alert" className="flex items-start gap-2 border-b border-negative/30 bg-negative/10 px-4 py-2 text-[11px] text-negative">
           <AlertIcon className="mt-px h-3.5 w-3.5 shrink-0" />
-          <span className="font-mono leading-snug">{bootError}</span>
+          <span className="flex-1 font-mono leading-snug">{bootError}</span>
+          <Button variant="ghost" onClick={() => { setBootError(null); setReload((value) => value + 1); }}>Retry</Button>
+          <Button variant="ghost" onClick={() => setBootError(null)} aria-label="Dismiss error">×</Button>
         </div>
       )}
 
@@ -551,7 +573,8 @@ export function Studio() {
                 nFrames={frames}
                 fps={video.fps}
                 prompts={currentPoints}
-                busy={previewBusy}
+                busy={previewBusy && previewRequestKey === previewKey}
+                disabled={trackSubmitting || trackJob.active || !selectedModel?.implemented}
                 hint={
                   editing
                     ? "Left click to add a point, right click to exclude"
@@ -572,7 +595,7 @@ export function Studio() {
           ) : (
             <div className="checker flex min-h-0 flex-1 items-center justify-center rounded-panel border border-ink-700">
               {!video ? (
-                <EmptyState
+                selectedId ? <div role="status" className="flex items-center gap-2 text-xs text-ink-300"><Spinner />Loading clip…</div> : <EmptyState
                   icon={<FilmIcon className="h-6 w-6" />}
                   title="No clip selected"
                   body="Upload a clip on the left, or pick one you already loaded."
@@ -603,7 +626,7 @@ export function Studio() {
             prompts={prompts}
             frameIndex={frameIndex}
             preview={freshPreview}
-            error={previewError}
+            error={currentPoints.length ? previewError : null}
             onRemovePoint={removePoint}
             onClearFrame={clearFrame}
             onClearAll={clearAll}
@@ -614,14 +637,16 @@ export function Studio() {
             onModelChange={setModel}
             bidirectional={bidirectional}
             onBidirectionalChange={setBidirectional}
-            canTrack={Boolean(ready && prompts.length > 0)}
+            canTrack={Boolean(ready && prompts.length > 0 && selectedModel?.implemented)}
+            submitting={trackSubmitting}
+            awaitingJob={trackJob.active && !trackJob.job}
             job={trackJob.job}
             jobError={trackJob.error}
             onTrack={handleTrack}
             onCancel={handleCancel}
             session={session}
           />
-          <MemoryPanel session={session} usesMemory={selectedModel?.uses_memory ?? false} />
+          <MemoryPanel session={session} usesMemory={models.find((entry) => entry.name === session?.model)?.uses_memory ?? false} />
           <ExportPanel
             videoId={video?.id ?? null}
             kind={exportKind}
@@ -629,9 +654,12 @@ export function Studio() {
             background={background}
             onBackgroundChange={setBackground}
             blurRadius={blurRadius}
-            onBlurRadiusChange={setBlurRadius}
+            onBlurRadiusChange={(value) => setBlurRadius(Math.min(128, Math.max(1, value)))}
             canExport={Boolean(session) && ready}
             job={exportJob.job}
+            submitting={exportSubmitting}
+            awaitingJob={exportJob.active && !exportJob.job}
+            jobError={exportJob.error}
             onExport={handleExport}
             exports={exportList}
             onRefresh={refreshExports}

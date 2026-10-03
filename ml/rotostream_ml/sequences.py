@@ -136,18 +136,28 @@ class VideoSequence:
         return [bool(flag) for flag in self.visible(object_index)]
 
     # ---------------------------------------------------------------- prompts
-    def prompt_for(self, object_index: int = 0, frame_index: int | None = None) -> PromptSet:
+    def prompt_for(self, object_index: int = 0, frame_index: int | None = None,
+                   *, mode: str = "point") -> PromptSet:
         """A single positive click inside the object, as a user would place it.
 
         Defaults to the first frame the object is visible. Raises if the object is
         not visible there rather than returning a click on the background.
         """
+        if not 0 <= object_index < self.n_objects:
+            raise ValueError(f"{self.name}: object index {object_index} out of range")
         index = self.first_visible_frame(object_index) if frame_index is None else frame_index
-        point = interior_point(self.object_masks(object_index)[index])
+        if mode not in {"point", "mask"}:
+            raise ValueError(f"unknown prompt mode {mode!r}; expected point or mask")
+        if not 0 <= index < self.n_frames:
+            raise ValueError(f"{self.name}: prompt frame {index} out of range")
+        mask = self.object_masks(object_index)[index]
+        point = interior_point(mask)
         if point is None:
             raise ValueError(
                 f"{self.name}: object {object_index} is not visible in frame {index}"
             )
+        if mode == "mask":
+            return PromptSet(frame_index=index, mask=mask)
         return PromptSet(
             frame_index=index,
             points=(PointPrompt(x=point[0], y=point[1], positive=True),),

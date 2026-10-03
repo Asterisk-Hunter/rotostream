@@ -91,6 +91,8 @@ export interface Session {
   absent_frames: number[];
   elapsed_s: number;
   cancelled: boolean;
+  status: JobStatus;
+  error: string | null;
   scores: FrameScore[];
   memory: Record<string, unknown>;
 }

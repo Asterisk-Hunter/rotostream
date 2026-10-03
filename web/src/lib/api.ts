@@ -46,7 +46,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...init, headers, signal: init.signal ?? AbortSignal.timeout(30_000),
+  });
   if (!response.ok) throw new ApiError(await errorDetail(response), response.status);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -63,6 +65,7 @@ export function uploadVideo(
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE_URL}/api/videos`);
+    xhr.timeout = 15 * 60 * 1000;
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
@@ -88,6 +91,8 @@ export function uploadVideo(
     };
 
     xhr.onerror = () => reject(new ApiError("Network error during upload", 0));
+    xhr.ontimeout = () => reject(new ApiError("Upload timed out. Check the connection and try again.", 0));
+    xhr.onabort = () => reject(new ApiError("Upload cancelled", 0));
     xhr.send(form);
   });
 }
@@ -101,11 +106,13 @@ export async function previewMask(
   videoId: string,
   prompt: Prompt,
   model?: string,
+  signal?: AbortSignal,
 ): Promise<PreviewMask> {
   const response = await fetch(`${BASE_URL}/api/videos/${videoId}/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, model }),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
   });
   if (!response.ok) throw new ApiError(await errorDetail(response), response.status);
   const blob = await response.blob();

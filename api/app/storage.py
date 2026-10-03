@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -37,12 +39,33 @@ def utcnow() -> str:
 class Workspace:
     def __init__(self, root: Path):
         self.root = Path(root)
+        self._lock = threading.RLock()
+        # Admission/deletion is separate from record writes: a preview may wait
+        # on the compute gate while its worker is publishing metadata.
+        self.operation_lock = threading.RLock()
         self.videos_root = self.root / "videos"
         self.videos_root.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------- videos
     def video_dir(self, video_id: str) -> Path:
+        self._validate_id(video_id)
         return self.videos_root / video_id
+
+    @staticmethod
+    def _validate_id(identifier: str) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier):
+            raise FileNotFoundError("unknown resource")
+
+    def _write_json(self, path: Path, meta: dict[str, Any]) -> None:
+        """Serialize writers and atomically publish every durable record."""
+        with self._lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                tmp.write_text(json.dumps(meta, indent=2, allow_nan=False), encoding="utf-8")
+                tmp.replace(path)
+            finally:
+                tmp.unlink(missing_ok=True)
 
     def frames_dir(self, video_id: str) -> Path:
         return self.video_dir(video_id) / "frames"
@@ -56,16 +79,20 @@ class Workspace:
         (directory / "frames").mkdir(parents=True, exist_ok=True)
         (directory / "sessions").mkdir(parents=True, exist_ok=True)
         (directory / "exports").mkdir(parents=True, exist_ok=True)
-        self.write_meta(
-            video_id,
-            {
-                "id": video_id,
-                "filename": filename,
-                "status": "uploaded",
-                "created_at": utcnow(),
-                "error": None,
-            },
-        )
+        try:
+            self.write_meta(
+                video_id,
+                {
+                    "id": video_id,
+                    "filename": filename,
+                    "status": "uploaded",
+                    "created_at": utcnow(),
+                    "error": None,
+                },
+            )
+        except BaseException:
+            self.delete_video(video_id)
+            raise
         return video_id
 
     def source_path(self, video_id: str) -> Path | None:
@@ -76,10 +103,7 @@ class Workspace:
 
     def write_meta(self, video_id: str, meta: dict[str, Any]) -> None:
         path = self.meta_path(video_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        self._write_json(path, meta)
 
     def read_meta(self, video_id: str) -> dict[str, Any]:
         path = self.meta_path(video_id)
@@ -88,10 +112,11 @@ class Workspace:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def update_meta(self, video_id: str, **changes: Any) -> dict[str, Any]:
-        meta = self.read_meta(video_id)
-        meta.update(changes)
-        self.write_meta(video_id, meta)
-        return meta
+        with self._lock:
+            meta = self.read_meta(video_id)
+            meta.update(changes)
+            self.write_meta(video_id, meta)
+            return meta
 
     def list_videos(self) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
@@ -107,13 +132,16 @@ class Workspace:
 
     def delete_video(self, video_id: str) -> bool:
         directory = self.video_dir(video_id)
+        if not directory.resolve().is_relative_to(self.videos_root.resolve()):
+            raise FileNotFoundError("unknown resource")
         if not directory.is_dir():
             return False
-        shutil.rmtree(directory, ignore_errors=True)
+        shutil.rmtree(directory)
         return True
 
     # ----------------------------------------------------------- sessions
     def session_dir(self, video_id: str, session_id: str) -> Path:
+        self._validate_id(session_id)
         return self.video_dir(video_id) / "sessions" / session_id
 
     def create_session(self, video_id: str) -> str:
@@ -129,8 +157,7 @@ class Workspace:
 
     def write_session_meta(self, video_id: str, session_id: str, meta: dict[str, Any]) -> None:
         path = self.session_dir(video_id, session_id) / "meta.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        self._write_json(path, meta)
 
     def read_session_meta(self, video_id: str, session_id: str) -> dict[str, Any]:
         path = self.session_dir(video_id, session_id) / "meta.json"
@@ -155,7 +182,8 @@ class Workspace:
 
     def latest_session_id(self, video_id: str) -> str | None:
         sessions = self.list_sessions(video_id)
-        return sessions[0]["id"] if sessions else None
+        completed = [session for session in sessions if session.get("status", "succeeded") == "succeeded"]
+        return completed[0]["id"] if completed else None
 
     # ------------------------------------------------------------ exports
     def exports_dir(self, video_id: str) -> Path:
@@ -172,12 +200,12 @@ class Workspace:
         return self.export_files_dir(video_id) / f"{export_id}{suffix}"
 
     def export_meta_path(self, video_id: str, export_id: str) -> Path:
+        self._validate_id(export_id)
         return self.exports_dir(video_id) / f"{export_id}.meta.json"
 
     def write_export_meta(self, video_id: str, export_id: str, meta: dict[str, Any]) -> None:
         path = self.export_meta_path(video_id, export_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        self._write_json(path, meta)
 
     def read_export_meta(self, video_id: str, export_id: str) -> dict[str, Any]:
         path = self.export_meta_path(video_id, export_id)
@@ -186,10 +214,11 @@ class Workspace:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def update_export_meta(self, video_id: str, export_id: str, **changes: Any) -> dict[str, Any]:
-        meta = self.read_export_meta(video_id, export_id)
-        meta.update(changes)
-        self.write_export_meta(video_id, export_id, meta)
-        return meta
+        with self._lock:
+            meta = self.read_export_meta(video_id, export_id)
+            meta.update(changes)
+            self.write_export_meta(video_id, export_id, meta)
+            return meta
 
     def list_exports(self, video_id: str) -> list[dict[str, Any]]:
         directory = self.exports_dir(video_id)
@@ -207,10 +236,27 @@ class Workspace:
     def export_artifact(self, video_id: str, export_id: str) -> Path | None:
         meta = self.read_export_meta(video_id, export_id)
         filename = meta.get("filename")
-        if not filename:
+        if meta.get("status") != "succeeded" or not filename:
+            return None
+        if Path(filename).name != filename or "/" in filename or "\\" in filename:
             return None
         path = self.export_files_dir(video_id) / filename
         return path if path.exists() else None
+
+    def recover_interrupted(self) -> None:
+        """In-process jobs cannot survive a restart; make their records honest."""
+        for video in self.list_videos():
+            video_id = video["id"]
+            if video.get("status") in {"uploaded", "extracting"}:
+                self.update_meta(video_id, status="failed", error="processing interrupted by server restart")
+            for session in self.list_sessions(video_id):
+                if session.get("status") in {"queued", "running"}:
+                    session.update(status="failed", error="tracking interrupted by server restart")
+                    self.write_session_meta(video_id, session["id"], session)
+            for export in self.list_exports(video_id):
+                if export.get("status") in {"queued", "running"}:
+                    self.update_export_meta(video_id, export["id"], status="failed",
+                                            error="export interrupted by server restart")
 
 
 @lru_cache

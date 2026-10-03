@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { formatTimecode } from "@/lib/format";
 import type { PointPrompt } from "@/lib/types";
+import { frameCoordinates } from "@/lib/coordinates";
 
 import { CursorIcon } from "./icons";
-import { Badge, Spinner, cx } from "./ui";
+import { Badge, Button, Spinner, cx } from "./ui";
 
 interface Props {
   frameUrl: string;
@@ -42,17 +43,16 @@ export function FrameStage({
   onAddPoint,
 }: Props) {
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const [foreground, setForeground] = useState(true);
+  const [keyboardPoint, setKeyboardPoint] = useState({ x: 0.5, y: 0.5 });
+  const [focused, setFocused] = useState(false);
 
   const toFrameCoords = useCallback(
     (clientX: number, clientY: number) => {
       const element = surfaceRef.current;
       if (!element) return null;
       const rect = element.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return null;
-      return {
-        x: Math.round(((clientX - rect.left) / rect.width) * width),
-        y: Math.round(((clientY - rect.top) / rect.height) * height),
-      };
+      return frameCoordinates(clientX, clientY, rect, width, height);
     },
     [width, height],
   );
@@ -102,7 +102,34 @@ export function FrameStage({
 
           <div
             ref={surfaceRef}
-            role="presentation"
+            role="button"
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
+            aria-label="Prompt object on frame. Arrow keys move the cursor; Enter marks the object; Shift Enter excludes background."
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={(event) => {
+              if (disabled) return;
+              const steps: Record<string, { x: number; y: number }> = {
+                ArrowLeft: { x: -0.02, y: 0 }, ArrowRight: { x: 0.02, y: 0 },
+                ArrowUp: { x: 0, y: -0.02 }, ArrowDown: { x: 0, y: 0.02 },
+              };
+              const step = steps[event.key];
+              if (step) {
+                event.preventDefault(); event.stopPropagation();
+                setKeyboardPoint((point) => ({
+                  x: Math.min(1, Math.max(0, point.x + step.x)),
+                  y: Math.min(1, Math.max(0, point.y + step.y)),
+                }));
+              } else if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onAddPoint({
+                  x: Math.min(width - 1, Math.round(keyboardPoint.x * width)),
+                  y: Math.min(height - 1, Math.round(keyboardPoint.y * height)),
+                  positive: foreground && !event.shiftKey && !event.altKey,
+                });
+              }
+            }}
             onContextMenu={(event) => event.preventDefault()}
             onPointerDown={(event) => {
               if (disabled || (event.button !== 0 && event.button !== 2)) return;
@@ -111,7 +138,7 @@ export function FrameStage({
               event.preventDefault();
               // Left click adds foreground; right click, alt or shift adds background.
               const positive =
-                event.button === 0 && !event.altKey && !event.shiftKey && !event.metaKey;
+                foreground && event.button === 0 && !event.altKey && !event.shiftKey && !event.metaKey;
               onAddPoint({ ...coords, positive });
             }}
             className={cx(
@@ -119,6 +146,7 @@ export function FrameStage({
               disabled ? "cursor-default" : "cursor-crosshair",
             )}
           />
+          {focused && !disabled && <span aria-hidden="true" className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent-300 bg-accent-500/20" style={{ left: `${keyboardPoint.x * 100}%`, top: `${keyboardPoint.y * 100}%` }} />}
         </div>
 
         {!overlayUrl && !busy && !disabled && (
@@ -138,7 +166,7 @@ export function FrameStage({
         )}
       </div>
 
-      <div className="mt-2 flex items-center justify-between gap-3 px-0.5">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 px-0.5">
         <div className="flex items-center gap-2">
           <Badge tone="neutral">
             frame <span className="tnum">{frameIndex + 1}</span> /{" "}
@@ -151,6 +179,11 @@ export function FrameStage({
         <span className="tnum font-mono text-[10px] text-ink-500">
           {width}×{height} working resolution
         </span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button variant={foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={foreground} onClick={() => setForeground(true)}>Mark object</Button>
+        <Button variant={!foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={!foreground} onClick={() => setForeground(false)}>Exclude background</Button>
+        <span className="text-[10px] text-ink-400">← → scrub · focus frame + Enter to prompt</span>
       </div>
     </div>
   );

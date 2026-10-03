@@ -102,6 +102,7 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   return (
     <button
+      type="button"
       {...rest}
       className={cx(
         "inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
@@ -136,7 +137,8 @@ export function Meter({
     <div
       className={cx("h-1.5 w-full overflow-hidden rounded-full bg-ink-800", className)}
       role="progressbar"
-      aria-valuenow={Math.round(value * 100)}
+      aria-label="Progress"
+      aria-valuenow={Math.round(Math.min(1, Math.max(0, value)) * 100)}
       aria-valuemin={0}
       aria-valuemax={100}
     >
@@ -213,6 +215,7 @@ export function Toggle({
     <button
       type="button"
       role="switch"
+      aria-label={label}
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className="flex w-full items-center justify-between gap-3 rounded-md border border-ink-700 bg-ink-800/60 px-2.5 py-2 text-left transition-colors hover:bg-ink-800"
@@ -271,6 +274,8 @@ export function Spinner({ className }: { className?: string }) {
 export function StatusDot({ ok, title }: { ok: boolean; title: string }) {
   return (
     <span
+      role="img"
+      aria-label={title}
       title={title}
       className={cx(
         "inline-block h-1.5 w-1.5 rounded-full",

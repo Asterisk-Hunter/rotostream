@@ -84,6 +84,7 @@ export function PromptPanel({
                   type="button"
                   onClick={() => onRemovePoint(frameIndex, index)}
                   title="Remove this click"
+                  aria-label={`Remove ${point.positive ? "foreground" : "background"} click at ${point.x}, ${point.y}`}
                   className={cx(
                     "group flex items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-[10px] tnum transition-colors",
                     point.positive
@@ -143,6 +144,8 @@ export function TrackPanel({
   onTrack,
   onCancel,
   session,
+  submitting = false,
+  awaitingJob = false,
 }: {
   models: ModelInfo[];
   model: string;
@@ -155,9 +158,11 @@ export function TrackPanel({
   onTrack: () => void;
   onCancel: () => void;
   session: Session | null;
+  submitting?: boolean;
+  awaitingJob?: boolean;
 }) {
   const selected = models.find((entry) => entry.name === model);
-  const running = job?.status === "queued" || job?.status === "running";
+  const running = submitting || awaitingJob || job?.status === "queued" || job?.status === "running";
 
   return (
     <Panel title="Track" subtitle={session ? `last run ${formatDuration(session.elapsed_s)}` : undefined}>
@@ -167,10 +172,10 @@ export function TrackPanel({
           hint={
             selected
               ? selected.description
-              : "Registered via api/app/models/registry.py"
+              : "Choose a tracker to segment and follow an object."
           }
         >
-          <Select value={model} onChange={(event) => onModelChange(event.target.value)}>
+          <Select value={model} disabled={running} onChange={(event) => onModelChange(event.target.value)}>
             {models.map((entry) => (
               <option key={entry.name} value={entry.name} disabled={!entry.implemented}>
                 {entry.name}
@@ -217,8 +222,8 @@ export function TrackPanel({
             {running ? <Spinner className="border-ink-950/40 border-t-ink-950" /> : <PlayIcon />}
             {running ? "Tracking…" : "Track object"}
           </Button>
-          {running && (
-            <Button variant="danger" onClick={onCancel} title="Cancel this job">
+          {running && job && (
+            <Button variant="danger" onClick={onCancel} title="Cancel this job" aria-label="Cancel tracking">
               <StopIcon />
             </Button>
           )}
@@ -358,6 +363,9 @@ export function ExportPanel({
   onExport,
   exports,
   onRefresh,
+  submitting = false,
+  awaitingJob = false,
+  jobError,
 }: {
   videoId: string | null;
   kind: ExportKind;
@@ -371,8 +379,11 @@ export function ExportPanel({
   onExport: () => void;
   exports: ExportRecord[];
   onRefresh: () => void;
+  submitting?: boolean;
+  awaitingJob?: boolean;
+  jobError: string | null;
 }) {
-  const running = job?.status === "queued" || job?.status === "running";
+  const running = submitting || awaitingJob || job?.status === "queued" || job?.status === "running";
   const kinds = Object.keys(EXPORT_LABELS) as ExportKind[];
 
   return (
@@ -380,7 +391,7 @@ export function ExportPanel({
       title="Export"
       subtitle="Deliverables rendered from the current session"
       action={
-        <Button variant="ghost" onClick={onRefresh} className="px-1.5 py-1 text-[10px]">
+        <Button variant="ghost" disabled={!videoId} onClick={onRefresh} className="px-1.5 py-1 text-[10px]">
           refresh
         </Button>
       }
@@ -413,6 +424,7 @@ export function ExportPanel({
               <NumberInput
                 min={1}
                 max={128}
+                disabled={background !== "blur"}
                 value={blurRadius}
                 onChange={(event) => onBlurRadiusChange(Number(event.target.value) || 24)}
               />
@@ -445,6 +457,8 @@ export function ExportPanel({
           </div>
         )}
 
+        {jobError && !job?.error && <p role="status" className="text-[11px] text-negative">{jobError}</p>}
+
         {exports.length > 0 && (
           <ul className="space-y-1.5 border-t border-ink-700/70 pt-3">
             {exports.map((record) => (
@@ -467,6 +481,7 @@ export function ExportPanel({
                   <a
                     href={assetUrl.download(videoId, record.id)}
                     download
+                    aria-label={`Download ${EXPORT_LABELS[record.kind]?.label ?? record.kind}`}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md border border-ink-600 bg-ink-800 px-2 py-1 text-[10px] text-ink-100 transition-colors hover:bg-ink-750"
                   >
                     <DownloadIcon className="h-3 w-3" />

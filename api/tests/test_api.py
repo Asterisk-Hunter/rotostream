@@ -98,6 +98,7 @@ def test_upload_then_extract_produces_readable_frames(client, sample_video):
     frame = client.get(f"/api/videos/{video_id}/frames/0")
     assert frame.status_code == 200
     assert frame.headers["content-type"] == "image/jpeg"
+    assert frame.headers["Cache-Control"].startswith("private,")
     assert client.get(f"/api/videos/{video_id}/thumbnail").status_code == 200
 
     assert client.get(f"/api/videos/{video_id}/frames/999").status_code == 404
@@ -148,7 +149,7 @@ def test_unimplemented_tracker_fails_fast_with_a_clear_409(client, monkeypatch, 
     )
     assert response.status_code == 409
     detail = response.json()["detail"]
-    assert "todo_model" in detail and "sam2_memory.py" in detail
+    assert "todo_model" in detail and "available tracker" in detail
 
 
 def test_unknown_tracker_is_404(client):

@@ -1,10 +1,14 @@
 """Health check: surfaces runtime capability so the UI can warn early."""
 from __future__ import annotations
 
+import tempfile
+import logging
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from .. import __version__
 from ..models.base import resolve_device
+from ..models import registry
 from ..schemas import HealthOut
 from ..settings import get_settings
 from ..storage import get_workspace
@@ -32,3 +36,23 @@ def health() -> HealthOut:
         torch=has_torch,
         default_model=settings.default_model,
     )
+
+
+@router.get("/ready", summary="Readiness without loading model weights")
+def ready() -> JSONResponse:
+    checks = {"ffmpeg": ffmpeg_available(), "storage": False, "tracker": False}
+    try:
+        with tempfile.TemporaryFile(dir=get_workspace().root) as handle:
+            handle.write(b"readiness")
+            handle.flush()
+        checks["storage"] = True
+    except OSError:
+        logging.getLogger(__name__).exception("workspace readiness check failed")
+    try:
+        info = registry.create(get_settings().default_model).info()
+        checks["tracker"] = info.implemented and not bool(info.error)
+    except Exception:
+        logging.getLogger(__name__).exception("tracker readiness check failed")
+    healthy = all(checks.values())
+    return JSONResponse(status_code=200 if healthy else 503,
+                        content={"status": "ready" if healthy else "unavailable", "checks": checks})

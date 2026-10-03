@@ -5,17 +5,17 @@
 # torch is intentionally NOT listed: the reference tracker and the whole API work
 # without it. Install the build your model needs, e.g.
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-fastapi>=0.110
-uvicorn[standard]>=0.27
-pydantic>=2.6
-pydantic-settings>=2.2
-python-multipart>=0.0.9
-numpy>=1.26
-pillow>=10
-opencv-python>=4.9
-tqdm>=4.66
-httpx>=0.27
-pytest>=8.0
+fastapi>=0.115.14,<1
+uvicorn[standard]>=0.38,<1
+pydantic>=2.11,<3
+pydantic-settings>=2.10,<3
+python-multipart>=0.0.20,<1
+numpy>=1.26,<3
+pillow>=12.3,<13
+opencv-python>=4.9,<6
+tqdm>=4.66,<5
+httpx>=0.27,<1
+pytest>=8.0,<9
 
 # Optional, and only for the sam2_memory tracker. The API, the naive tracker and
 # every endpoint work without it: transformers is imported lazily inside the
@@ -23,4 +23,4 @@ pytest>=8.0
 # / Sam2VisionModel) -- that is both the architecture definition and the source of
 # the released weights the memory stack warm-starts from. 4.57 is the version this
 # was developed against; older releases predate the video tower.
-transformers>=4.57
+transformers==4.57.6

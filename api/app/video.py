@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import io
+import math
 import shutil
 import subprocess
 import zipfile
@@ -14,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from . import masks as mask_utils
+from .settings import get_settings
 
 Progress = Callable[[float, str], None]
 
@@ -33,7 +36,10 @@ def _run(cmd: Sequence[Any], *, cwd: Path | None = None) -> None:
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,
+            timeout=get_settings().ffmpeg_timeout_s,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise FFmpegError("media processing exceeded the configured time limit") from exc
     except FileNotFoundError as exc:  # pragma: no cover - depends on host
         raise FFmpegError(f"ffmpeg/ffprobe not found on PATH: {exc}") from exc
     if proc.returncode != 0:
@@ -73,7 +79,13 @@ def probe(path: str | Path) -> VideoProbe:
         "ffprobe", "-v", "error", "-print_format", "json",
         "-show_streams", "-show_format", str(path),
     ]
-    proc = subprocess.run([str(part) for part in cmd], capture_output=True, text=True)
+    try:
+        proc = subprocess.run([str(part) for part in cmd], capture_output=True, text=True,
+                              timeout=min(30, get_settings().ffmpeg_timeout_s))
+    except subprocess.TimeoutExpired as exc:
+        raise FFmpegError("video probing exceeded the configured time limit") from exc
+    except FileNotFoundError as exc:
+        raise FFmpegError("ffprobe not found on PATH") from exc
     if proc.returncode != 0:
         tail = "\n".join((proc.stderr or "").strip().splitlines()[-4:])
         raise FFmpegError(f"ffprobe failed ({proc.returncode}):\n{tail}")
@@ -85,10 +97,14 @@ def probe(path: str | Path) -> VideoProbe:
         raise FFmpegError("no video stream found in the uploaded file")
 
     fps = _ratio(video.get("avg_frame_rate")) or _ratio(video.get("r_frame_rate")) or 30.0
+    if not math.isfinite(fps) or fps <= 0 or fps > 1000:
+        raise FFmpegError("video has an invalid frame rate")
     duration = 0.0
     for source in (video.get("duration"), payload.get("format", {}).get("duration")):
         try:
             duration = float(source)
+            if not math.isfinite(duration):
+                duration = 0.0
             if duration > 0:
                 break
         except (TypeError, ValueError):
@@ -139,6 +155,10 @@ def extract_frames(
 ) -> tuple[int, int, int]:
     """Decode to ``out_dir/000000.jpg`` ... Returns ``(n_frames, width, height)``."""
     info = probe(source)
+    if info.width <= 0 or info.height <= 0:
+        raise FFmpegError("video has invalid dimensions")
+    if info.width * info.height > get_settings().max_source_pixels:
+        raise FFmpegError("source resolution exceeds ROTOSTREAM_MAX_SOURCE_PIXELS")
     width, height = target_frame_size(info.width, info.height, long_side)
     out_dir = Path(out_dir)
     if out_dir.exists():
@@ -147,7 +167,7 @@ def extract_frames(
 
     _run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
+            "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
             "-i", source,
             "-vf", f"scale={width}:{height}:flags=lanczos",
             "-q:v", _jpeg_qscale(quality),
@@ -200,7 +220,7 @@ def _encode_png_sequence(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     _run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
+            "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
             "-framerate", f"{max(fps, 1.0):.6f}",
             "-i", tmp_dir / "%06d.png",
             *encoder_args,
@@ -306,10 +326,9 @@ def export_cutout_zip(inp: ExportInputs, progress: Progress) -> Path:
             frame = inp.frame(index)
             mask = inp.mask(index)
             rgba = np.dstack([frame, (mask * 255).astype(np.uint8)])
-            path = inp.out_path.parent / f".cutout_{index:06d}.png"
-            Image.fromarray(rgba, mode="RGBA").save(path)
-            archive.write(path, arcname=f"cutout/{index:06d}.png")
-            path.unlink(missing_ok=True)
+            buffer = io.BytesIO()
+            Image.fromarray(rgba, mode="RGBA").save(buffer, format="PNG")
+            archive.writestr(f"cutout/{index:06d}.png", buffer.getvalue())
             progress(0.95 * (index + 1) / inp.n_frames, f"packing {index + 1}/{inp.n_frames}")
     progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
@@ -374,4 +393,11 @@ EXPORT_SUFFIX: dict[str, str] = {
 def run_export(kind: str, inp: ExportInputs, progress: Progress, **options: Any) -> Path:
     if kind not in EXPORTERS:
         raise ValueError(f"unknown export kind {kind!r}; known: {', '.join(sorted(EXPORTERS))}")
-    return EXPORTERS[kind](inp, progress, **options)
+    if inp.n_frames <= 0 or inp.width <= 0 or inp.height <= 0:
+        raise ValueError("export requires extracted video frames")
+    inp.out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return EXPORTERS[kind](inp, progress, **options)
+    except BaseException:
+        inp.out_path.unlink(missing_ok=True)
+        raise

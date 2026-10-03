@@ -248,6 +248,7 @@ def check_causality(
     checkpoint: str | None = None,
     prompt_frame: int | None = None,
     seed: int = 1234,
+    preloaded_tracker: VideoObjectTracker | None = None,
 ) -> LeakReport:
     """Verify ``model`` only attends to already-visited frames.
 
@@ -270,6 +271,9 @@ def check_causality(
         return report
 
     def load() -> VideoObjectTracker:
+        if preloaded_tracker is not None:
+            # _run_to always calls set_video(), which resets bank and encoder cache.
+            return preloaded_tracker
         tracker = make_tracker()
         try:
             tracker.load(device=device, checkpoint=checkpoint)
@@ -330,13 +334,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--all", action="store_true", help="every scenario, both directions")
+    parser.add_argument("--json", default=None, help="write probe evidence as JSON")
     args = parser.parse_args(argv)
+    preloaded = None
+    if args.model == "sam2_memory":
+        import torch
+        torch.set_num_threads(min(4, torch.get_num_threads()))
+        preloaded = registry.create(args.model)
+        preloaded.load(device=args.device, checkpoint=args.checkpoint)
 
     scenarios = available_sequences() if args.all else [args.sequence]
     directions = [Direction.FORWARD, Direction.BACKWARD] if args.all else [Direction(args.direction)]
 
     failures = 0
     skipped = 0
+    reports = []
     for name in scenarios:
         sequence = build(name)
         for direction in directions:
@@ -352,17 +364,28 @@ def main(argv: list[str] | None = None) -> int:
                     device=args.device,
                     checkpoint=args.checkpoint,
                     prompt_frame=args.prompt_frame,
+                    preloaded_tracker=preloaded,
                 )
             except Exception as exc:  # noqa: BLE001 - report tooling failures per scenario
                 print(f"{args.model} on {name} [{direction.value}] - ERROR: {type(exc).__name__}: {exc}")
                 failures += 1
                 continue
             print(report.summary())
+            reports.append(report.to_dict())
             if report.skipped and not report.checks:
                 skipped += 1
             else:
                 failures += 0 if report.ok else 1
     print()
+    if args.json:
+        import json
+        from pathlib import Path
+        path = Path(args.json)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"model": args.model, "device": args.device,
+                                    "tolerance_pixels": args.tolerance, "max_checks": args.max_checks,
+                                    "passed": not failures and not skipped, "reports": reports}, indent=2),
+                        encoding="utf-8")
     if failures:
         print(f"{failures} causality check(s) FAILED.")
     if skipped:
