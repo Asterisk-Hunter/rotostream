@@ -227,11 +227,10 @@ propagations so this holds across multiple prompts, and the rule is enforced by
 "from the future" relative to the current frame — its memory design is
 **bidirectional** and a prompted frame anywhere in the clip may be attended to.
 
-**This repo is stricter on purpose.** Bidirectional prompting is not reproducible
-under a semi-supervised benchmark: it lets a tracker see frames it has not been
-asked about yet, which makes a J&F number look better than the deployed behaviour
-of a click-then-propagate editor. The directional contract is a **documented
-deviation**, not a bug:
+**This repo enforces a causal editing contract.** Conditioning on later corrections
+defines a different task from first-frame mask evaluation. Label those diagnostic
+runs separately, including their prompt frames and propagation policy. The
+directional contract is a documented policy difference:
 
 - Do **not** "fix" it to match the paper.
 - Do **not** adopt bidirectional memory inside the model.
@@ -282,7 +281,8 @@ reference. Each one is easy to reintroduce, and each one wasted real time.
 3. **Attention must not be materialised.** With a full bank (6 recent + prompted,
    4096 tokens each) an explicit `q @ k.T` is ~3 GB *per layer* in float32.
    `RoPEAttention` uses `F.scaled_dot_product_attention`, which is both smaller and
-   bit-exact against the reference's eager path on CPU float32.
+   checked numerically against the reference's eager path on CPU float32; use
+   the recorded parity tolerances rather than assuming bit-exact end-to-end output.
 4. **Training needs gradient checkpointing to fit a consumer GPU.** A clip is one
    graph, and the memory encoder's stride-2 pass over a 1024x1024 mask is ~0.25 GB
    of activation per frame. `MemoryStack.set_gradient_checkpointing(True)`

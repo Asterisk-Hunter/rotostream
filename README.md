@@ -109,6 +109,7 @@ failure paths, queue limits, cancellation, storage IDs, restart recovery, DAVIS
 split/protocol handling, metrics and training/checkpoint behavior. The frontend
 suite covers coordinate scaling, timecode and progress monitoring. CI additionally
 builds the authenticated container stack and runs the HTTP workflow through it.
+CI also audits production JavaScript and Python runtime dependencies.
 See [executed validation](docs/VALIDATION.md) for checks, browser coverage and limits.
 
 Use `pnpm dev:api` or `pnpm dev:web` to run a single development service.

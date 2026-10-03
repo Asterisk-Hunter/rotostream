@@ -138,6 +138,7 @@ production web build. `pnpm smoke` drives a running native API over real HTTP th
 upload, extraction, prompting, tracking, SSE, all six exports and cleanup. The CI
 container job additionally builds the images, starts the authenticated gateway,
 checks unauthorized access, and runs the same workflow through that gateway.
+CI audits production JavaScript and API runtime dependencies before release.
 
 Container manifests were statically checked locally. Docker Desktop was started
 on the Windows validation host, but image-list and pull commands hung, so no local
