@@ -9,8 +9,9 @@ contract; this one explains it and adds the architecture spec.
 Reference: **SAM 2: Segment Anything in Images and Videos**, Ravi et al.,
 [arXiv:2408.00714v2](https://arxiv.org/abs/2408.00714) (ICLR 2025).
 Code: [github.com/facebookresearch/sam2](https://github.com/facebookresearch/sam2) (Apache 2.0).
-The paper's "SAM 2" is this repo's "SAM 2.1" (HF ids
-`facebook/sam2.1-hiera-{tiny,small,base-plus,large}`).
+This repository uses the released SAM 2.1 checkpoint family (HF ids
+`facebook/sam2.1-hiera-{tiny,small,base-plus,large}`); paper and checkpoint versions
+must remain explicit when comparing results.
 
 ---
 
@@ -87,12 +88,12 @@ Payload types (`base.py`):
 | `PromptSet` | `frame_index: int`, `points: tuple[PointPrompt, ...]`, `box: BoxPrompt \| None`, `mask: np.ndarray \| None` |
 | `FrameResult` | `mask: np.ndarray (H, W) bool`, `score: float`, `object_present: bool`, `extras: dict` |
 | `TrainingSequence` | `frames (T,H,W,3) uint8`, `gt_masks (T,H,W) bool`, `prompts: tuple[PromptSet, ...]`, `meta: dict` |
+| `FrameSource` | `.n_frames`, `.width`, `.height`, `.fps`, `__getitem__(i) -> (H,W,3) uint8 RGB` |
 
 Mask prompts are copied into read-only boolean `(H, W)` arrays and cannot be
 combined with points or a box. Evaluation uses this path for first-frame ground
 truth; the browser continues to use point/box prompts. The color baseline requires
 a foreground point or box on every point-prompted frame before background exclusions.
-| `FrameSource` | `.n_frames`, `.width`, `.height`, `.fps`, `__getitem__(i) -> (H,W,3) uint8 RGB` |
 
 `check_frame_result()` (`base.py:209`) enforces shape, `bool` dtype, `score` in
 `[0, 1]`, and `object_present=False => mask.sum() == 0`. It is called on every
@@ -125,9 +126,12 @@ it is not what the paper claims.
 
 ## 3. The memory stack, with the real numbers
 
-Defaults live in the tracker's `__init__`: `memory_bank_size=6`,
-`num_memory_layers=4`, `embed_dim=256`, `num_heads=8`. Keep those names — the API
-and the ablation table in the README quote them.
+Architecture widths and layer counts come from `Sam2VideoConfig`, not separate
+tracker constructor arguments. The released tiny configuration uses four memory
+attention layers, width 256, one attention head, and 64-channel memory. Its seven
+memory slots imply six recent frames plus conditioning memory. The tracker accepts
+`memory_bank_size=1..8` to override the recent-frame budget; the mask decoder has
+its own eight-head two-way transformer.
 
 ### 3.1 Memory attention
 
@@ -329,8 +333,8 @@ Training recipe from the paper:
 | J&F | 73.5 | 73.0 | 73.2 |
 
 Essentially flat; **6 is the paper default**, which is why it is the default here.
-The README ablation table extends this with the presence head, temporal
-positional embedding and object pointers.
+[Measured synthetic ablations](RESULTS.md) separately exercise presence, temporal
+position encoding and object pointers using the released tiny checkpoint.
 
 ### Headline numbers (for context, not targets)
 
@@ -342,52 +346,44 @@ positional embedding and object pointers.
 
 ---
 
-## 7. Verification order
+## 7. Verification and measured evidence
 
-Run these in order. Each one is cheaper than the next and catches a different
-class of bug.
+Run contract and parity checks before interpreting benchmark scores. The parity
+script checks released keys, memory encoder/features, memory attention, raw single
+and multimask decoder outputs, presence, pointers and quantized memory writes.
+Current probes pass at absolute/relative tolerance 1e-5; memory attention differs
+by at most 7.153e-7. This is numerical module parity, not a complete reference-policy
+equivalence proof.
 
-0. **`python api/scripts/check_parity.py`** — the correctness gate, and the reason
-   the rest of the list is worth running at all. It loads the released SAM 2.1
-   weights into the built memory stack (0 missing / 0 unexpected keys) and compares
-   the memory encoder and memory attention against the reference modules on
-   identical inputs. A large difference here means the implementation is not the
-   architecture, and no benchmark number will save it. Recorded: encoder features,
-   encoder position codes and attention output all agree to max abs diff `0.000e+00`.
-1. **`python api/scripts/check_model.py sam2_memory`** — contract only: shapes,
-   dtype, forward/backward propagation, `reset`, the future-leakage probes, and
-   `object_present=False => empty mask`. The fastest loop while iterating.
-   Recorded: `8 passed, 0 failed, 0 skipped`.
-   (`leakcheck --all` is the slowest of these — it re-runs the tracker twice per
-   probe. On CPU, bound it with `--max-checks 3` or it will outlive the session.)
-2. **`python -m rotostream_ml.leakcheck --model sam2_memory --all`** (from `ml/`) —
-   the strong causality proof: poison every unvisited frame with noise and demand
-   the mask at the probe frame is unchanged. Run this before trusting *any* number.
-3. **`python -m rotostream_ml.evaluate --model sam2_memory --dataset synthetic`** —
-   toy clips with exact ground truth: `linear`, `occlusion`, `reentry`,
-   `distractor` (identical lookalike), `color_shift`. Fix directionality and
-   off-by-one bugs here, not on real footage.
-4. **`python -m rotostream_ml.train --model sam2_memory --dry-run`** then
-   **`--overfit`** — verify the training path (non-zero gradients, a loss that can
-   fall) before spending GPU hours.
-5. **DAVIS**:
-   `python -m rotostream_ml.train --model sam2_memory --dataset davis --root ...`
-   then
-   `python -m rotostream_ml.evaluate --model sam2_memory --dataset davis --root ... --split val --json runs/davis_val.json`.
+```bash
+node scripts/python.mjs api/scripts/check_parity.py --json runs/parity.json
+node scripts/python.mjs api/scripts/check_model.py sam2_memory
+cd ml
+python -m rotostream_ml.leakcheck --model sam2_memory --device cuda --precision bfloat16 --all --max-checks 3 --json ../runs/causality.json
+python -m rotostream_ml.evaluate --model sam2_memory --dataset synthetic
+python -m rotostream_ml.train --model sam2_memory --dataset synthetic --sequences linear --device cpu --sequence-length 2 --dry-run
+python -m rotostream_ml.evaluate --model sam2_memory --dataset davis --root ../datasets/DAVIS --split val --resolution 480p --protocol davis --prompt-mode mask --device cuda --json ../runs/davis_val.json
+```
 
-`check_model.py` prints one line per check. For a stub it reports `SKIP` rather
-than a pass — never treat a skip as a green light.
+Released weights can be evaluated on DAVIS without fine-tuning first. Training
+is an optional, separately measured experiment, not a prerequisite for obtaining
+a valid released-checkpoint score. The complete validation run is 89.40 J&F over
+30 clips and 61 independently tracked objects. First and last frames are excluded;
+the report records mask prompting, weight revision, timings and dirty-tree provenance.
 
-Last full pass, in this order:
+Thirty poisoned-frame causality probes pass with zero changed pixels, across all
+five synthetic scenarios and both directions. This is sampled evidence alongside
+contract tests, not an exhaustive proof. The current gradient dry run records
+nonzero gradients in 272/305 trainable tensors over three backward passes.
+No optimizer convergence or real-data training result is claimed.
 
-| Step | Result |
-| --- | --- |
-| 0 `check_parity.py` | all three comparisons `0.000e+00`, 0/0 keys |
-| 1 `check_model.py sam2_memory` | 8 passed, 0 failed, 0 skipped |
-| 2 `leakcheck --all --max-checks 3` | 5 scenarios x 2 directions, all PASS |
-| 3 `evaluate --dataset synthetic` | mean J&F 0.9600 over 136 frames |
-| 4 `train --dry-run` | PASS, gradients through 305 tensors |
-| 4 `train --overfit --steps 50` | PASS: mean loss 0.011446 -> 0.000000 (fell 100%) |
+The encoder freeze covers Hiera, while learned decoder skip projections remain
+trainable. Trained-stack checkpoints omit frozen encoder tensors, so inference
+restores the released Hiera weights and validates contributed keys. Loading uses
+tensor-only checkpoint deserialization.
+
+See [results and raw reports](RESULTS.md) and [release validation](VALIDATION.md).
+A skipped contract check establishes nothing and must not be counted as a pass.
 
 ---
 
