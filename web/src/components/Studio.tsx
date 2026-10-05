@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { FrameStage } from "@/components/FrameStage";
 import { ExportPanel, MemoryPanel, PromptPanel, TrackPanel } from "@/components/Panels";
@@ -72,6 +73,7 @@ async function fetchClip(videoId: string): Promise<Clip> {
 }
 
 export function Studio() {
+  const router = useRouter();
   const [health, setHealth] = useState<Health | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [model, setModel] = useState("");
@@ -577,7 +579,10 @@ export function Studio() {
             type="button"
             onClick={async () => {
               const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
-              if (response.ok) window.location.assign("/login");
+              if (response.ok) {
+                router.replace("/login");
+                router.refresh();
+              }
             }}
             className="ml-1 rounded-md border border-ink-700/80 px-2.5 py-1.5 text-[10px] font-medium text-ink-400 transition hover:border-ink-500 hover:text-ink-100"
           >

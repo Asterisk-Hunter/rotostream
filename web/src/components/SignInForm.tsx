@@ -5,9 +5,15 @@ import { useRouter } from "next/navigation";
 
 function safeReturnPath(): string {
   const requested = new URLSearchParams(window.location.search).get("next");
-  if (!requested || !requested.startsWith("/") || requested.startsWith("//")
-    || requested.startsWith("/login") || requested.startsWith("/auth/")) return "/";
-  return requested;
+  if (!requested || !requested.startsWith("/")) return "/";
+  try {
+    const target = new URL(requested, window.location.origin);
+    if (target.origin !== window.location.origin
+      || target.pathname === "/login" || target.pathname.startsWith("/auth/")) return "/";
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return "/";
+  }
 }
 
 export function SignInForm() {
