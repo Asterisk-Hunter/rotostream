@@ -573,6 +573,16 @@ export function Studio() {
           ) : (
             !bootError && <Spinner />
           )}
+          <button
+            type="button"
+            onClick={async () => {
+              const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+              if (response.ok) window.location.assign("/login");
+            }}
+            className="ml-1 rounded-md border border-ink-700/80 px-2.5 py-1.5 text-[10px] font-medium text-ink-400 transition hover:border-ink-500 hover:text-ink-100"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 
