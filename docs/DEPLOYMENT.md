@@ -5,6 +5,10 @@ records live on disk; jobs and model caches live in memory. The shipped deployme
 protects the entire studio with a password, keeps backend ports private, and uses
 the same browser origin for requests, images, downloads and SSE.
 
+For the deployed managed-service option, see the [Cloud Run guide](../deploy/cloudrun/README.md).
+It uses a single instance and Cloud Storage volume mount; it is a private-editor
+demo deployment, not a multi-user or multi-instance setup.
+
 ## Container deployment
 
 Requires Docker Engine with Compose v2. From the repository root:

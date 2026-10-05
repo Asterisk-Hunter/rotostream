@@ -57,6 +57,11 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
         }}
       />
 
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">Clips</span>
+        <span className="font-mono text-[10px] text-ink-500">{videos.length}</span>
+      </div>
+
       <div
         onDragOver={(event) => {
           event.preventDefault();
@@ -77,17 +82,17 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(); }
         }}
         className={cx(
-          "cursor-pointer rounded-panel border border-dashed px-4 py-5 text-center transition-colors",
+          "cursor-pointer rounded-panel border border-dashed px-4 py-6 text-center transition-colors",
           dragging
             ? "border-accent-400 bg-accent-500/10"
             : "border-ink-600 bg-ink-850/40 hover:border-ink-500 hover:bg-ink-850",
         )}
       >
         <UploadIcon className="mx-auto h-4 w-4 text-ink-400" />
-        <p className="mt-2 text-xs text-ink-200">
+        <p className="mt-2.5 text-xs font-medium text-ink-200">
           {upload.active ? "Uploading…" : "Drop a clip or click to browse"}
         </p>
-        <p className="mt-0.5 text-[11px] text-ink-400">mp4 · mov · webm · mkv</p>
+        <p className="mt-1 text-[11px] text-ink-500">MP4, MOV, WebM, MKV</p>
       </div>
 
       {upload.active && (
@@ -123,15 +128,15 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
               className={cx(
                 "group relative rounded-panel border transition-colors",
                 selected
-                  ? "border-accent-500/60 bg-accent-500/[0.07]"
-                  : "border-ink-700 bg-ink-850/50 hover:border-ink-600",
+                  ? "border-accent-500/50 bg-accent-500/[0.08] shadow-[inset_2px_0_0_var(--color-accent-400)]"
+                  : "border-ink-800 bg-ink-900/50 hover:border-ink-700",
               )}
             >
               <button
                 type="button"
                 onClick={() => { setDeleteId(null); onSelect(video.id); }}
                 aria-pressed={selected}
-                className="flex w-full gap-2.5 p-2 text-left"
+                className="flex w-full gap-3 p-2.5 text-left"
               >
                 <span className="checker h-11 w-16 shrink-0 overflow-hidden rounded border border-ink-700">
                   {video.status === "ready" ? (
@@ -153,7 +158,7 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs text-ink-100">{video.filename}</span>
+                  <span className="block truncate text-xs font-medium text-ink-100">{video.filename}</span>
                   <span className="mt-0.5 flex items-center gap-1.5">
                     <Badge tone={STATUS_TONE[video.status]}>{video.status}</Badge>
                     {video.status === "ready" && (

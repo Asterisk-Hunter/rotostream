@@ -5,18 +5,18 @@
  * (ACCENT in api/app/masks.py), so the UI and the rendered overlays agree.
  */
 @theme {
-  --color-ink-950: #07080b;
-  --color-ink-900: #0b0d12;
-  --color-ink-850: #101319;
-  --color-ink-800: #161a21;
-  --color-ink-750: #1c212a;
-  --color-ink-700: #232936;
-  --color-ink-600: #333b4b;
-  --color-ink-500: #4a5468;
-  --color-ink-400: #8993a6;
-  --color-ink-300: #9aa4b6;
-  --color-ink-200: #c3cad7;
-  --color-ink-100: #e8ecf4;
+  --color-ink-950: #090b10;
+  --color-ink-900: #0f1218;
+  --color-ink-850: #141820;
+  --color-ink-800: #1a1f28;
+  --color-ink-750: #222834;
+  --color-ink-700: #2d3542;
+  --color-ink-600: #465161;
+  --color-ink-500: #697587;
+  --color-ink-400: #98a3b4;
+  --color-ink-300: #b3bdcb;
+  --color-ink-200: #d0d7e1;
+  --color-ink-100: #f1f4f8;
 
   --color-accent-500: #0ea5e9;
   --color-accent-400: #38bdf8;
@@ -30,7 +30,7 @@
   --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono", Menlo,
     Consolas, monospace;
 
-  --radius-panel: 0.625rem;
+  --radius-panel: 0.875rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -47,7 +47,9 @@
   }
 
   body {
-    background-color: var(--color-ink-950);
+    background:
+      radial-gradient(circle at 52% -20%, rgba(70, 115, 151, 0.11), transparent 38rem),
+      var(--color-ink-950);
     color: var(--color-ink-200);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -98,7 +100,7 @@
     0 9px,
     9px -9px,
     -9px 0px;
-  background-color: var(--color-ink-900);
+  background-color: #11151c;
 }
 
 @utility range-track {

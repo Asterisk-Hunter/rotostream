@@ -59,10 +59,10 @@ export function FrameStage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="checker relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-panel border border-ink-700 p-3">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-panel border border-ink-800 bg-ink-900 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
         <div
-          className="relative"
-          style={{ aspectRatio: `${width} / ${height}`, maxWidth: "100%", maxHeight: "100%" }}
+          className="checker relative h-full max-h-full w-auto max-w-full overflow-hidden rounded-lg shadow-[0_24px_60px_rgba(0,0,0,0.42)]"
+          style={{ aspectRatio: `${width} / ${height}` }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -71,7 +71,7 @@ export function FrameStage({
             width={width}
             height={height}
             draggable={false}
-            className="block h-full w-full select-none rounded-[3px]"
+            className="block h-full w-full select-none object-contain"
           />
 
           {overlayUrl && (
@@ -80,7 +80,7 @@ export function FrameStage({
               src={overlayUrl}
               alt=""
               draggable={false}
-              className="pointer-events-none absolute inset-0 h-full w-full select-none rounded-[3px]"
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
             />
           )}
 
@@ -150,8 +150,8 @@ export function FrameStage({
         </div>
 
         {!overlayUrl && !busy && !disabled && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-            <span className="flex items-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/90 px-3 py-1.5 text-[11px] text-ink-300 backdrop-blur">
+          <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
+            <span className="flex items-center gap-1.5 rounded-full border border-ink-700/80 bg-ink-950/88 px-3 py-1.5 text-[11px] text-ink-200 shadow-lg backdrop-blur">
               <CursorIcon className="h-3 w-3 text-accent-400" />
               {hint ?? "Click the object to prompt it"}
             </span>
@@ -159,14 +159,14 @@ export function FrameStage({
         )}
 
         {busy && (
-          <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/90 px-2.5 py-1 text-[11px] text-ink-300 backdrop-blur">
+          <div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/90 px-2.5 py-1 text-[11px] text-ink-300 backdrop-blur">
             <Spinner />
             segmenting
           </div>
         )}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 px-0.5">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 px-0.5">
         <div className="flex items-center gap-2">
           <Badge tone="neutral">
             frame <span className="tnum">{frameIndex + 1}</span> /{" "}
@@ -180,10 +180,10 @@ export function FrameStage({
           {width}×{height} working resolution
         </span>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <Button variant={foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={foreground} onClick={() => setForeground(true)}>Mark object</Button>
         <Button variant={!foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={!foreground} onClick={() => setForeground(false)}>Exclude background</Button>
-        <span className="text-[10px] text-ink-400">← → scrub · focus frame + Enter to prompt</span>
+        <span className="text-[11px] text-ink-500">← → scrub · focus frame + Enter to prompt</span>
       </div>
     </div>
   );

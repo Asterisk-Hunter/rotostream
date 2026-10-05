@@ -34,13 +34,13 @@ export function Timeline({ nFrames, index, scores, promptFrames, onIndexChange }
   const current = byFrame.get(index);
 
   return (
-    <div className="space-y-2">
+    <div className="rounded-panel border border-ink-800 bg-ink-900/55 px-3.5 py-3">
       <div className="relative">
         <svg
           viewBox={`0 0 ${Math.max(nFrames, 1)} 1`}
           preserveAspectRatio="none"
           onClick={seekFromEvent}
-          className="h-12 w-full cursor-pointer rounded border border-ink-700 bg-ink-900"
+          className="h-12 w-full cursor-pointer rounded-lg border border-ink-800 bg-ink-950/50"
           role="img"
           aria-label="Per-frame mask confidence"
         >
@@ -93,10 +93,10 @@ export function Timeline({ nFrames, index, scores, promptFrames, onIndexChange }
         value={index}
         aria-label="Frame"
         onChange={(event) => onIndexChange(Number(event.target.value))}
-        className="range-track w-full cursor-pointer accent-[var(--color-accent-400)]"
+        className="range-track mt-2 w-full cursor-pointer accent-[var(--color-accent-400)]"
       />
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-ink-400">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-ink-500">
         <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-sm bg-accent-400" /> prompted
         </span>

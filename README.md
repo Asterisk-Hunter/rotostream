@@ -94,6 +94,7 @@ Open `http://127.0.0.1:8080`. The default container image supplies the CPU basel
 The [deployment guide](docs/DEPLOYMENT.md) covers native GPU inference, TLS/SSH
 remote access, readiness, limits, backup/restore and upgrades. This deployment
 supports one editor and one API worker; jobs and compute locks are in-process.
+For a managed Cloud Run deployment, see [the Cloud Run guide](deploy/cloudrun/README.md).
 
 ## Verify
 

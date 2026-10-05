@@ -504,28 +504,29 @@ export function Studio() {
 
   return (
     <div className="mx-auto flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-ink-800 px-4 py-2.5">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-sm font-semibold tracking-tight text-ink-100">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-b border-ink-800/90 bg-ink-950/75 px-5 py-3 backdrop-blur-xl">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h1 className="shrink-0 text-[15px] font-semibold tracking-[-0.035em] text-ink-100">
             Roto<span className="text-accent-400">Stream</span>
           </h1>
-          <p className="hidden text-[11px] text-ink-400 sm:block">
-            click once, propagate a mask across the clip
+          <span className="hidden h-3 w-px bg-ink-700 sm:block" />
+          <p className="hidden truncate text-[12px] text-ink-400 md:block">
+            {video ? video.filename : "Video segmentation workspace"}
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           {health ? (
             <>
               <Badge tone="accent">{health.device}</Badge>
-              <span className="flex items-center gap-1.5 text-[10px] text-ink-400">
+              <span className="hidden items-center gap-1.5 text-[10px] text-ink-500 sm:flex">
                 <StatusDot
                   ok={health.ffmpeg}
                   title={health.ffmpeg ? "ffmpeg found" : "ffmpeg missing from PATH"}
                 />
                 ffmpeg
               </span>
-              <span className="flex items-center gap-1.5 text-[10px] text-ink-400">
+              <span className="hidden items-center gap-1.5 text-[10px] text-ink-500 sm:flex">
                 <StatusDot
                   ok={health.torch}
                   title={health.torch ? "torch importable" : "torch not installed"}
@@ -549,8 +550,8 @@ export function Studio() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[240px_minmax(0,1fr)_330px] lg:overflow-hidden">
-        <div className="min-h-0 lg:overflow-y-auto">
+      <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[264px_minmax(0,1fr)_352px] lg:overflow-hidden">
+        <div className="min-h-0 border-r border-ink-800/70 pr-4 lg:overflow-y-auto">
           <ProjectRail
             videos={videos}
             selectedId={selectedId}
@@ -561,7 +562,7 @@ export function Studio() {
           />
         </div>
 
-        <main className="flex min-h-0 flex-col gap-3">
+        <main className="flex min-h-0 flex-col gap-4">
           {ready && video ? (
             <>
               <FrameStage
@@ -593,7 +594,7 @@ export function Studio() {
               />
             </>
           ) : (
-            <div className="checker flex min-h-0 flex-1 items-center justify-center rounded-panel border border-ink-700">
+            <div className="flex min-h-0 flex-1 items-center justify-center rounded-panel border border-ink-800 bg-ink-900/60">
               {!video ? (
                 selectedId ? <div role="status" className="flex items-center gap-2 text-xs text-ink-300"><Spinner />Loading clip…</div> : <EmptyState
                   icon={<FilmIcon className="h-6 w-6" />}

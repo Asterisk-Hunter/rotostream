@@ -1,0 +1,17 @@
+steps:
+- name: gcr.io/cloud-builders/docker
+  args: ["build", "-f", "api/Dockerfile", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_TAG}", "."]
+- name: gcr.io/cloud-builders/docker
+  args: ["build", "-f", "web/Dockerfile", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_TAG}", "."]
+- name: gcr.io/cloud-builders/docker
+  args: ["build", "-f", "deploy/cloudrun/Dockerfile.gateway", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gateway:${_TAG}", "."]
+images:
+- "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_TAG}"
+- "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_TAG}"
+- "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gateway:${_TAG}"
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _REGION: asia-south1
+  _REPOSITORY: rotostream
+  _TAG: latest

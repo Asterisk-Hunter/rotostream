@@ -28,24 +28,24 @@ export function Panel({
   return (
     <section
       className={cx(
-        "rounded-panel border border-ink-700 bg-ink-850/60 backdrop-blur-sm",
+        "rounded-panel border border-ink-800 bg-ink-900/72 shadow-[0_1px_0_rgba(255,255,255,0.025)]",
         className,
       )}
     >
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-ink-700/70 px-3.5 py-2.5">
+        <header className="flex items-center justify-between gap-3 px-4 pb-1 pt-3.5">
           <div className="min-w-0">
             {title && (
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-300">
+              <h2 className="text-xs font-semibold tracking-[0.01em] text-ink-100">
                 {title}
               </h2>
             )}
-            {subtitle && <p className="mt-0.5 text-xs text-ink-400">{subtitle}</p>}
+            {subtitle && <p className="mt-0.5 text-[11px] text-ink-500">{subtitle}</p>}
           </div>
           {action}
         </header>
       )}
-      <div className="p-3.5">{children}</div>
+      <div className="p-4 pt-3">{children}</div>
     </section>
   );
 }
@@ -73,7 +73,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em]",
         TONE_CLASS[tone],
         className,
       )}
@@ -105,7 +105,7 @@ export function Button({
       type="button"
       {...rest}
       className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors duration-150",
         "disabled:cursor-not-allowed disabled:opacity-40",
         VARIANT_CLASS[variant],
         className,
@@ -176,7 +176,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
     <select
       {...rest}
       className={cx(
-        "w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-ink-100",
+        "w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-ink-100",
         "focus:border-accent-500 focus:outline-none",
         className,
       )}
@@ -192,7 +192,7 @@ export function NumberInput({ className, ...rest }: InputHTMLAttributes<HTMLInpu
       type="number"
       {...rest}
       className={cx(
-        "w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 font-mono text-xs text-ink-100 tnum",
+        "w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 font-mono text-xs text-ink-100 tnum",
         "focus:border-accent-500 focus:outline-none",
         className,
       )}
@@ -218,7 +218,7 @@ export function Toggle({
       aria-label={label}
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-3 rounded-md border border-ink-700 bg-ink-800/60 px-2.5 py-2 text-left transition-colors hover:bg-ink-800"
+      className="flex w-full items-center justify-between gap-3 rounded-lg border border-ink-800 bg-ink-850/70 px-3 py-2.5 text-left transition-colors hover:bg-ink-800"
     >
       <span className="min-w-0">
         <span className="block text-xs text-ink-100">{label}</span>

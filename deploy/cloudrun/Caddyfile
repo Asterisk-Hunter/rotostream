@@ -1,0 +1,32 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	basic_auth {
+		{$ROTOSTREAM_AUTH_USER} {$ROTOSTREAM_AUTH_HASH}
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	request_body {
+		max_size 513MB
+	}
+
+	@api path /api/* /docs /docs/* /redoc /openapi.json
+	handle @api {
+		reverse_proxy localhost:8010 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy localhost:3000
+	}
+}
