@@ -37,12 +37,13 @@ export function PromptPanel({
 }) {
   const current = prompts.find((prompt) => prompt.frame_index === frameIndex);
   const points = current?.points ?? [];
-  const totalPoints = prompts.reduce((sum, prompt) => sum + prompt.points.length, 0);
+  const box = current?.box ?? null;
+  const totalSelections = prompts.reduce((sum, prompt) => sum + prompt.points.length + (prompt.box ? 1 : 0), 0);
 
   return (
     <Panel
       title="Prompts"
-      subtitle={`${totalPoints} click${totalPoints === 1 ? "" : "s"} across ${prompts.length} frame${prompts.length === 1 ? "" : "s"}`}
+      subtitle={`${totalSelections} selection${totalSelections === 1 ? "" : "s"} across ${prompts.length} frame${prompts.length === 1 ? "" : "s"}`}
       action={
         prompts.length > 0 ? (
           <Button variant="ghost" onClick={onClearAll} className="px-1.5 py-1">
@@ -55,9 +56,8 @@ export function PromptPanel({
       <div className="space-y-3">
         <div className="rounded-md border border-ink-700 bg-ink-800/50 px-2.5 py-2">
           <p className="text-[11px] text-ink-300">
-            <span className="text-positive">Left click</span> marks the object ·{" "}
-            <span className="text-negative">right click / alt-click</span> marks background to
-            exclude.
+            <span className="text-accent-300">Start with Draw box</span> for the subject. Add a{" "}
+            <span className="text-positive">foreground click</span> or <span className="text-negative">background click</span> to correct the preview.
           </p>
         </div>
 
@@ -65,19 +65,26 @@ export function PromptPanel({
           <span className="text-[11px] uppercase tracking-wider text-ink-400">
             On frame <span className="tnum font-mono">{frameIndex + 1}</span>
           </span>
-          {points.length > 0 && (
+          {current && (
             <Button variant="ghost" onClick={onClearFrame} className="px-1.5 py-0.5 text-[10px]">
               clear frame
             </Button>
           )}
         </div>
 
-        {points.length === 0 ? (
+        {!current ? (
           <p className="text-[11px] leading-relaxed text-ink-400">
-            No clicks on this frame yet.
+            No selection on this frame yet.
           </p>
         ) : (
           <ul className="flex flex-wrap gap-1.5">
+            {box && (
+              <li>
+                <span className="flex items-center gap-1.5 rounded-full border border-accent-400/40 bg-accent-500/10 px-2 py-1 font-mono text-[10px] text-accent-200">
+                  box {box.x1 - box.x0}×{box.y1 - box.y0}
+                </span>
+              </li>
+            )}
             {points.map((point, index) => (
               <li key={`${point.x}-${point.y}-${index}`}>
                 <button
@@ -139,6 +146,7 @@ export function TrackPanel({
   bidirectional,
   onBidirectionalChange,
   canTrack,
+  requirement,
   job,
   jobError,
   onTrack,
@@ -153,6 +161,7 @@ export function TrackPanel({
   bidirectional: boolean;
   onBidirectionalChange: (next: boolean) => void;
   canTrack: boolean;
+  requirement: string | null;
   job: Job<TrackResult> | null;
   jobError: string | null;
   onTrack: () => void;
@@ -167,14 +176,7 @@ export function TrackPanel({
   return (
     <Panel title="Track" subtitle={session ? `last run ${formatDuration(session.elapsed_s)}` : undefined}>
       <div className="space-y-3">
-        <Field
-          label="Tracker"
-          hint={
-            selected
-              ? selected.description
-              : "Choose a tracker to segment and follow an object."
-          }
-        >
+        <Field label="Tracker">
           <Select value={model} disabled={running} onChange={(event) => onModelChange(event.target.value)}>
             {models.map((entry) => (
               <option key={entry.name} value={entry.name} disabled={!entry.implemented}>
@@ -187,13 +189,11 @@ export function TrackPanel({
         </Field>
 
         {selected?.implemented && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {selected.uses_memory && <Badge tone="accent">memory</Badge>}
-            {selected.trainable && <Badge>trainable</Badge>}
-            {selected.checkpoint_hint && (
-              <span className="font-mono text-[10px] text-ink-400">{selected.checkpoint_hint}</span>
-            )}
-          </div>
+          <p className="text-[11px] leading-snug text-ink-400">
+            {selected.uses_memory
+              ? "Memory tracker — recommended for real clips and occlusions."
+              : "Colour baseline — useful for quick tests, not reliable identity tracking."}
+          </p>
         )}
 
         {selected && !selected.implemented && (
@@ -214,7 +214,7 @@ export function TrackPanel({
           checked={bidirectional}
           onChange={onBidirectionalChange}
           label="Track both directions"
-          hint="Backwards from the first prompt, forwards from the last"
+          hint="Forward after each prompt, then backward before the first anchor"
         />
 
         <div className="flex gap-2">
@@ -228,6 +228,10 @@ export function TrackPanel({
             </Button>
           )}
         </div>
+
+        {requirement && !running && (
+          <p role="status" className="text-[11px] leading-snug text-ink-400">{requirement}</p>
+        )}
 
         {job && (
           <div className="space-y-1.5">
@@ -254,15 +258,20 @@ export function TrackPanel({
         )}
 
         {session && (
-          <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-ink-700/70 pt-3">
-            <Stat label="Frames tracked" value={`${session.n_tracked} / ${session.n_frames}`} />
-            <Stat label="Mean score" value={formatScore(session.mean_score)} />
-            <Stat
-              label="Absent frames"
-              value={session.absent_frames.length ? String(session.absent_frames.length) : "none"}
-            />
-            <Stat label="Model" value={session.model} />
-          </dl>
+          <div className="space-y-3 border-t border-ink-700/70 pt-3">
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+              <Stat label="Frames tracked" value={`${session.n_tracked} / ${session.n_frames}`} />
+              <Stat label="Mean score" value={formatScore(session.mean_score)} />
+              <Stat
+                label="Absent frames"
+                value={session.absent_frames.length ? String(session.absent_frames.length) : "none"}
+              />
+              <Stat label="Model" value={session.model} />
+            </dl>
+            <p className="rounded-lg border border-positive/20 bg-positive/[0.06] px-3 py-2 text-[11px] text-ink-300">
+              <span className="font-medium text-positive">Mask ready.</span> Choose a format in Export to create a downloadable file.
+            </p>
+          </div>
         )}
       </div>
     </Panel>

@@ -12,6 +12,7 @@ import { useJob } from "@/hooks/useJob";
 import { ApiError, api, assetUrl } from "@/lib/api";
 import {
   type BackgroundMode,
+  type BoxPrompt,
   type ExportKind,
   type ExportRecord,
   type Health,
@@ -143,7 +144,12 @@ export function Studio() {
         setBootError(null);
         setModels(modelList);
         setVideos(videoList);
+        // The server default stays available as a safe fallback for lightweight
+        // deployments. In the studio, prefer the memory tracker whenever this
+        // runtime can actually use it: it is the only built-in tracker intended
+        // for object identity across a real clip rather than the colour baseline.
         const preferred =
+          modelList.find((entry) => entry.uses_memory && entry.implemented) ??
           modelList.find((entry) => entry.is_default && entry.implemented) ??
           modelList.find((entry) => entry.implemented);
         setModel(preferred?.name ?? healthPayload.default_model);
@@ -246,19 +252,24 @@ export function Studio() {
   const ready = video?.status === "ready";
   const frames = video?.n_frames ?? 0;
 
-  const currentPoints = useMemo(
-    () => prompts.find((entry) => entry.frame_index === frameIndex)?.points ?? [],
+  const currentPrompt = useMemo(
+    () => prompts.find((entry) => entry.frame_index === frameIndex) ?? null,
     [prompts, frameIndex],
   );
+  const currentPoints = currentPrompt?.points ?? [];
+  const currentBox = currentPrompt?.box ?? null;
 
   const promptSignature = useMemo(
-    () => currentPoints.map((point) => `${point.positive ? "+" : "-"}${point.x},${point.y}`).join("|"),
-    [currentPoints],
+    () => [
+      currentPoints.map((point) => `${point.positive ? "+" : "-"}${point.x},${point.y}`).join("|"),
+      currentBox ? `box:${currentBox.x0},${currentBox.y0},${currentBox.x1},${currentBox.y1}` : "",
+    ].join("|"),
+    [currentPoints, currentBox],
   );
 
   // Identifies exactly which frame + prompt set an overlay belongs to.
   const previewKey =
-    video && currentPoints.length > 0 ? `${video.id}#${model}#${frameIndex}#${promptSignature}` : null;
+    video && (currentPoints.length > 0 || currentBox) ? `${video.id}#${model}#${frameIndex}#${promptSignature}` : null;
 
   const freshPreview = preview && previewKey !== null && preview.key === previewKey ? preview : null;
 
@@ -275,7 +286,7 @@ export function Studio() {
         try {
           const next = await api.previewMask(
             video.id,
-            { frame_index: frameIndex, points: currentPoints, box: null },
+            { frame_index: frameIndex, points: currentPoints, box: currentBox },
             model || undefined,
             controller.signal,
           );
@@ -300,7 +311,7 @@ export function Studio() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [previewKey, ready, video, frameIndex, currentPoints, model, releasePreview]);
+  }, [previewKey, ready, video, frameIndex, currentPoints, currentBox, model, releasePreview]);
 
   // ----------------------------------------------------------- keyboard nav
   useEffect(() => {
@@ -405,6 +416,22 @@ export function Studio() {
     [frameIndex],
   );
 
+  const addBox = useCallback(
+    (box: BoxPrompt) => {
+      setEditing(true);
+      setPrompts((list) => {
+        const existing = list.find((entry) => entry.frame_index === frameIndex);
+        if (!existing) {
+          return [...list, { frame_index: frameIndex, points: [], box }].sort(
+            (a, b) => a.frame_index - b.frame_index,
+          );
+        }
+        return list.map((entry) => entry.frame_index === frameIndex ? { ...entry, box } : entry);
+      });
+    },
+    [frameIndex],
+  );
+
   const removePoint = useCallback((targetFrame: number, pointIndex: number) => {
     setEditing(true);
     setPrompts((list) =>
@@ -414,7 +441,7 @@ export function Studio() {
             ? { ...entry, points: entry.points.filter((_, index) => index !== pointIndex) }
             : entry,
         )
-        .filter((entry) => entry.points.length > 0),
+        .filter((entry) => entry.points.length > 0 || entry.box !== null),
     );
   }, []);
 
@@ -429,8 +456,10 @@ export function Studio() {
     setPreviewError(null);
   }, []);
 
+  const hasPositiveSeed = prompts.some((entry) => entry.box !== null || entry.points.some((point) => point.positive));
+
   const handleTrack = useCallback(async () => {
-    if (!video || prompts.length === 0 || submittingRef.current.track || trackJob.active) return;
+    if (!video || !hasPositiveSeed || submittingRef.current.track || trackJob.active) return;
     submittingRef.current.track = true;
     setTrackSubmitting(true);
     try {
@@ -450,7 +479,7 @@ export function Studio() {
       submittingRef.current.track = false;
       if (selectedIdRef.current === video.id) setTrackSubmitting(false);
     }
-  }, [video, prompts, model, bidirectional, trackJob.active]);
+  }, [video, prompts, model, bidirectional, trackJob.active, hasPositiveSeed]);
 
   const handleCancel = useCallback(async () => {
     if (!trackJobId) return;
@@ -501,6 +530,12 @@ export function Studio() {
   }, [video, editing, session, frameIndex, freshPreview]);
 
   const selectedModel = models.find((entry) => entry.name === model);
+  const canTrack = Boolean(ready && selectedModel?.implemented && hasPositiveSeed);
+  const trackRequirement = prompts.length === 0
+    ? "Start with a box or a foreground click on the object."
+    : !hasPositiveSeed
+      ? "Add a box or foreground click before tracking."
+      : null;
 
   return (
     <div className="mx-auto flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
@@ -574,6 +609,7 @@ export function Studio() {
                 nFrames={frames}
                 fps={video.fps}
                 prompts={currentPoints}
+                box={currentBox}
                 busy={previewBusy && previewRequestKey === previewKey}
                 disabled={trackSubmitting || trackJob.active || !selectedModel?.implemented}
                 hint={
@@ -584,12 +620,13 @@ export function Studio() {
                       : "Click the object to prompt it"
                 }
                 onAddPoint={addPoint}
+                onAddBox={addBox}
               />
               <Timeline
                 nFrames={frames}
                 index={frameIndex}
                 scores={session?.scores ?? []}
-                promptFrames={session?.prompt_frames ?? []}
+                promptFrames={editing ? prompts.map((entry) => entry.frame_index) : session?.prompt_frames ?? []}
                 onIndexChange={setFrameIndex}
               />
             </>
@@ -627,7 +664,7 @@ export function Studio() {
             prompts={prompts}
             frameIndex={frameIndex}
             preview={freshPreview}
-            error={currentPoints.length ? previewError : null}
+            error={currentPoints.length || currentBox ? previewError : null}
             onRemovePoint={removePoint}
             onClearFrame={clearFrame}
             onClearAll={clearAll}
@@ -638,7 +675,8 @@ export function Studio() {
             onModelChange={setModel}
             bidirectional={bidirectional}
             onBidirectionalChange={setBidirectional}
-            canTrack={Boolean(ready && prompts.length > 0 && selectedModel?.implemented)}
+            canTrack={canTrack}
+            requirement={trackRequirement}
             submitting={trackSubmitting}
             awaitingJob={trackJob.active && !trackJob.job}
             job={trackJob.job}
@@ -647,7 +685,6 @@ export function Studio() {
             onCancel={handleCancel}
             session={session}
           />
-          <MemoryPanel session={session} usesMemory={models.find((entry) => entry.name === session?.model)?.uses_memory ?? false} />
           <ExportPanel
             videoId={video?.id ?? null}
             kind={exportKind}
@@ -665,6 +702,7 @@ export function Studio() {
             exports={exportList}
             onRefresh={refreshExports}
           />
+          <MemoryPanel session={session} usesMemory={models.find((entry) => entry.name === session?.model)?.uses_memory ?? false} />
         </aside>
       </div>
     </div>
