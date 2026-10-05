@@ -256,7 +256,7 @@ export function Studio() {
     () => prompts.find((entry) => entry.frame_index === frameIndex) ?? null,
     [prompts, frameIndex],
   );
-  const currentPoints = currentPrompt?.points ?? [];
+  const currentPoints = useMemo(() => currentPrompt?.points ?? [], [currentPrompt]);
   const currentBox = currentPrompt?.box ?? null;
 
   const promptSignature = useMemo(

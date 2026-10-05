@@ -3,8 +3,8 @@
 import { useCallback, useRef, useState } from "react";
 
 import { formatTimecode } from "@/lib/format";
-import type { PointPrompt } from "@/lib/types";
-import { frameCoordinates } from "@/lib/coordinates";
+import type { BoxPrompt, PointPrompt } from "@/lib/types";
+import { frameBox, frameCoordinates } from "@/lib/coordinates";
 
 import { CursorIcon } from "./icons";
 import { Badge, Button, Spinner, cx } from "./ui";
@@ -18,10 +18,12 @@ interface Props {
   nFrames: number;
   fps: number;
   prompts: PointPrompt[];
+  box: BoxPrompt | null;
   busy?: boolean;
   disabled?: boolean;
   hint?: string;
   onAddPoint: (point: PointPrompt) => void;
+  onAddBox: (box: BoxPrompt) => void;
 }
 
 /**
@@ -37,13 +39,17 @@ export function FrameStage({
   nFrames,
   fps,
   prompts,
+  box,
   busy,
   disabled,
   hint,
   onAddPoint,
+  onAddBox,
 }: Props) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [foreground, setForeground] = useState(true);
+  const [tool, setTool] = useState<"point" | "box">("point");
+  const [dragBox, setDragBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
   const [keyboardPoint, setKeyboardPoint] = useState({ x: 0.5, y: 0.5 });
   const [focused, setFocused] = useState(false);
 
@@ -56,6 +62,13 @@ export function FrameStage({
     },
     [width, height],
   );
+
+  const boxStyle = (selection: BoxPrompt) => ({
+    left: `${(Math.min(selection.x0, selection.x1) / width) * 100}%`,
+    top: `${(Math.min(selection.y0, selection.y1) / height) * 100}%`,
+    width: `${(Math.abs(selection.x1 - selection.x0) / width) * 100}%`,
+    height: `${(Math.abs(selection.y1 - selection.y0) / height) * 100}%`,
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -100,12 +113,28 @@ export function FrameStage({
             </span>
           ))}
 
+          {box && (
+            <span
+              aria-label="Object selection box"
+              className="pointer-events-none absolute border-2 border-accent-300 bg-accent-400/10 shadow-[0_0_0_1px_rgba(2,10,20,0.72)]"
+              style={boxStyle(box)}
+            />
+          )}
+
+          {dragBox && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute border-2 border-dashed border-accent-200 bg-accent-400/15"
+              style={boxStyle({ x0: dragBox.start.x, y0: dragBox.start.y, x1: dragBox.end.x, y1: dragBox.end.y })}
+            />
+          )}
+
           <div
             ref={surfaceRef}
             role="button"
             tabIndex={disabled ? -1 : 0}
             aria-disabled={disabled}
-            aria-label="Prompt object on frame. Arrow keys move the cursor; Enter marks the object; Shift Enter excludes background."
+            aria-label={tool === "box" ? "Draw a box around the object on this frame." : "Prompt object on frame. Arrow keys move the cursor; Enter marks the object; Shift Enter excludes background."}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={(event) => {
@@ -136,10 +165,36 @@ export function FrameStage({
               const coords = toFrameCoords(event.clientX, event.clientY);
               if (!coords) return;
               event.preventDefault();
+              if (tool === "box" && event.button === 0) {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setDragBox({ start: coords, end: coords });
+                return;
+              }
               // Left click adds foreground; right click, alt or shift adds background.
               const positive =
                 foreground && event.button === 0 && !event.altKey && !event.shiftKey && !event.metaKey;
               onAddPoint({ ...coords, positive });
+            }}
+            onPointerMove={(event) => {
+              if (!dragBox) return;
+              const coords = toFrameCoords(event.clientX, event.clientY);
+              if (coords) setDragBox((current) => current ? { ...current, end: coords } : current);
+            }}
+            onPointerUp={(event) => {
+              if (!dragBox) return;
+              const end = toFrameCoords(event.clientX, event.clientY);
+              const start = dragBox.start;
+              setDragBox(null);
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              if (!end) return;
+              if (Math.abs(end.x - start.x) < 4 || Math.abs(end.y - start.y) < 4) {
+                onAddPoint({ ...end, positive: true });
+                return;
+              }
+              const selection = frameBox(start, end);
+              if (selection) onAddBox(selection);
             }}
             className={cx(
               "absolute inset-0",
@@ -153,7 +208,7 @@ export function FrameStage({
           <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
             <span className="flex items-center gap-1.5 rounded-full border border-ink-700/80 bg-ink-950/88 px-3 py-1.5 text-[11px] text-ink-200 shadow-lg backdrop-blur">
               <CursorIcon className="h-3 w-3 text-accent-400" />
-              {hint ?? "Click the object to prompt it"}
+              {tool === "box" ? "Drag a tight box around the object" : hint ?? "Click the object to prompt it"}
             </span>
           </div>
         )}
@@ -181,9 +236,10 @@ export function FrameStage({
         </span>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        <Button variant={foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={foreground} onClick={() => setForeground(true)}>Mark object</Button>
-        <Button variant={!foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={!foreground} onClick={() => setForeground(false)}>Exclude background</Button>
-        <span className="text-[11px] text-ink-500">← → scrub · focus frame + Enter to prompt</span>
+        <Button variant={tool === "point" && foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={tool === "point" && foreground} onClick={() => { setTool("point"); setForeground(true); }}>Mark object</Button>
+        <Button variant={tool === "box" ? "primary" : "secondary"} disabled={disabled} aria-pressed={tool === "box"} onClick={() => { setTool("box"); setForeground(true); }}>Draw box</Button>
+        <Button variant={tool === "point" && !foreground ? "primary" : "secondary"} disabled={disabled} aria-pressed={tool === "point" && !foreground} onClick={() => { setTool("point"); setForeground(false); }}>Exclude background</Button>
+        <span className="text-[11px] text-ink-500">Start with a box · add clicks to correct · ← → scrub</span>
       </div>
     </div>
   );

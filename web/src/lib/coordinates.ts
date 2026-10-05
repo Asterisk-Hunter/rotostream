@@ -8,3 +8,14 @@ export function frameCoordinates(clientX: number, clientY: number, rect: {
     y: Math.min(height - 1, Math.max(0, Math.round(((clientY - rect.top) / rect.height) * height))),
   };
 }
+
+/** Normalizes two valid frame points into the non-zero rectangle required by the API. */
+export function frameBox(start: { x: number; y: number }, end: { x: number; y: number }): {
+  x0: number; y0: number; x1: number; y1: number;
+} | null {
+  const x0 = Math.min(start.x, end.x);
+  const y0 = Math.min(start.y, end.y);
+  const x1 = Math.max(start.x, end.x);
+  const y1 = Math.max(start.y, end.y);
+  return x0 === x1 || y0 === y1 ? null : { x0, y0, x1, y1 };
+}

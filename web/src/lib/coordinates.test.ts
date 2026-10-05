@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { frameCoordinates } from "./coordinates.ts";
+import { frameBox, frameCoordinates } from "./coordinates.ts";
 
 const rect = { left: 10, top: 20, width: 400, height: 200 };
 test("rendered pointer coordinates map to source frame pixels", () => {
@@ -13,4 +13,8 @@ test("frame edge and out-of-bounds pointer events stay inside the mask", () => {
 test("unmeasured surfaces cannot create invalid prompts", () => {
   assert.equal(frameCoordinates(10, 20, { ...rect, width: 0 }, 960, 480), null);
   assert.equal(frameCoordinates(10, 20, rect, 0, 480), null);
+});
+test("dragged selections normalize to a valid API box", () => {
+  assert.deepEqual(frameBox({ x: 90, y: 40 }, { x: 10, y: 120 }), { x0: 10, y0: 40, x1: 90, y1: 120 });
+  assert.equal(frameBox({ x: 10, y: 40 }, { x: 10, y: 120 }), null);
 });
