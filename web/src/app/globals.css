@@ -1,38 +1,11 @@
+/* Hallmark: design-system-import */
 @import "tailwindcss";
+@import "./tokens.css";
 
 /*
  * Design tokens. The accent matches the mask overlay colour the API paints
  * (ACCENT in api/app/masks.py), so the UI and the rendered overlays agree.
  */
-@theme {
-  --color-ink-950: #090b10;
-  --color-ink-900: #0f1218;
-  --color-ink-850: #141820;
-  --color-ink-800: #1a1f28;
-  --color-ink-750: #222834;
-  --color-ink-700: #2d3542;
-  --color-ink-600: #465161;
-  --color-ink-500: #697587;
-  --color-ink-400: #98a3b4;
-  --color-ink-300: #b3bdcb;
-  --color-ink-200: #d0d7e1;
-  --color-ink-100: #f1f4f8;
-
-  --color-accent-500: #0ea5e9;
-  --color-accent-400: #38bdf8;
-  --color-accent-300: #7dd3fc;
-  --color-positive: #4ade80;
-  --color-negative: #fb7185;
-  --color-warn: #fbbf24;
-
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono", Menlo,
-    Consolas, monospace;
-
-  --radius-panel: 0.875rem;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -44,12 +17,14 @@
 @layer base {
   html {
     color-scheme: dark;
+    background: var(--color-ink-950);
+    overflow-x: clip;
   }
 
   body {
-    background:
-      radial-gradient(circle at 52% -20%, rgba(70, 115, 151, 0.11), transparent 38rem),
-      var(--color-ink-950);
+    min-height: 100vh;
+    overflow-x: clip;
+    background: var(--color-ink-950);
     color: var(--color-ink-200);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -85,6 +60,8 @@
   ::-webkit-scrollbar-thumb:hover {
     background: var(--color-ink-600);
   }
+
+  button, a, input, select { -webkit-tap-highlight-color: transparent; }
 }
 
 @utility checker {
@@ -109,4 +86,62 @@
   height: 4px;
   border-radius: 999px;
   background: var(--color-ink-700);
+}
+
+/* RotoStream Cut workspace: calm chrome, bright image, clear editing hierarchy. */
+.studio-shell { min-height: 100dvh; background: var(--color-ink-950); }
+.studio-topbar { min-height: 58px; border-color: var(--color-ink-800); background: rgba(15,20,25,.96); }
+.studio-layout { display: grid; grid-template-columns: 224px minmax(0,1fr) 306px; gap: 0; min-height: 0; flex: 1; }
+.studio-library { min-width: 0; padding: 18px 14px 18px 18px; border-right: 1px solid var(--color-ink-800); overflow: auto; }
+.studio-main { min-width: 0; min-height: 0; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.studio-inspector { min-width: 0; min-height: 0; padding: 16px 16px 18px 0; overflow: auto; }
+.viewer-surface { background: #090c0f; border: 1px solid #283139; border-radius: 10px; }
+.step-nav { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; padding: 4px; border-radius: 9px; background: #101519; border: 1px solid #252e35; }
+.step-nav button { min-height: 39px; border-bottom: 2px solid transparent; color: #94a2ab; transition: color 150ms ease, border-color 150ms ease; }
+.step-nav button[aria-current="step"] { border-color: var(--color-accent-400); color: #e2ebef; }
+.step-nav button[data-complete="true"] { color: #b0c3cb; }
+.advanced-disclosure { margin: 0 16px 4px; border-top: 1px solid #252e35; }
+.advanced-disclosure summary { min-height: 42px; display: flex; align-items: center; cursor: pointer; color: #94a2ab; font-size: 12px; }
+.advanced-disclosure[open] { padding-bottom: 12px; }
+.advanced-disclosure[open] > div { padding: 0 0 0 2px; }
+.clip-dropzone { min-height: 88px; padding: 15px; }
+.clip-card { border-radius: 7px !important; }
+.timeline-shell { border-radius: 9px; border-color: #29333a; background: #12171b; }
+.timeline-filmstrip { display: grid; grid-template-columns: repeat(10,minmax(0,1fr)); gap: 3px; overflow: hidden; border-radius: 5px; background: #080b0e; }
+.timeline-filmstrip button { min-width: 0; aspect-ratio: 16 / 7; overflow: hidden; border: 1px solid transparent; opacity: .74; }
+.timeline-filmstrip button[aria-current="true"] { border-color: var(--color-accent-400); opacity: 1; box-shadow: 0 0 0 1px rgba(56,189,248,.24); }
+.timeline-filmstrip img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+@media (max-width: 1350px) {
+  .studio-layout { grid-template-columns: 198px minmax(0,1fr) 284px; }
+  .studio-library { padding-left: 14px; padding-right: 10px; }
+  .studio-main { padding: 14px; }
+  .studio-inspector { padding: 14px 12px 14px 0; }
+}
+@media (max-width: 1050px) {
+  .studio-shell { min-height: 100dvh; height: auto; }
+  .studio-layout { grid-template-columns: minmax(0,1fr) 300px; grid-template-areas: "library library" "main inspector"; }
+  .studio-library { grid-area: library; padding: 12px 16px; border-right: 0; border-bottom: 1px solid var(--color-ink-800); overflow: visible; }
+  .studio-library > aside { height: auto; }
+  .studio-library > aside > :last-child { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .studio-library .clip-card { min-width: 230px; max-width: 300px; }
+  .studio-main { grid-area: main; min-height: 65vh; }
+  .studio-inspector { grid-area: inspector; max-height: 80vh; }
+}
+@media (max-width: 720px) {
+  .studio-layout { display: flex; flex-direction: column; }
+  .studio-library { padding: 10px 12px; }
+  .studio-library .clip-dropzone { min-width: 170px; min-height: 64px; padding: 9px; }
+  .studio-library .clip-dropzone p:last-child { display: none; }
+  .studio-library .clip-card { min-width: 220px; }
+  .studio-main { min-height: 58vh; padding: 12px; }
+  .studio-inspector { max-height: none; padding: 0 12px 16px; overflow: visible; }
+  .viewer-surface { min-height: 34vh; padding: 8px !important; }
+  .viewer-surface > div:first-child { max-height: 52vh; }
+  .timeline-filmstrip { grid-template-columns: repeat(6,minmax(0,1fr)); }
+}
+@media (max-width: 380px) {
+  .studio-main { padding: 9px; }
+  .studio-library .clip-card { min-width: 196px; }
+  .step-nav button { font-size: 11px; }
 }

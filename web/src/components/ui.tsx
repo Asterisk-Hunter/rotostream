@@ -28,7 +28,7 @@ export function Panel({
   return (
     <section
       className={cx(
-        "rounded-panel border border-ink-800 bg-ink-900/72 shadow-[0_1px_0_rgba(255,255,255,0.025)]",
+        "rounded-panel border border-ink-800 bg-ink-900/72",
         className,
       )}
     >
@@ -36,16 +36,16 @@ export function Panel({
         <header className="flex items-center justify-between gap-3 px-4 pb-1 pt-3.5">
           <div className="min-w-0">
             {title && (
-              <h2 className="text-xs font-semibold tracking-[0.01em] text-ink-100">
+              <h2 className="text-sm font-semibold tracking-[-0.01em] text-ink-100">
                 {title}
               </h2>
             )}
-            {subtitle && <p className="mt-0.5 text-[11px] text-ink-500">{subtitle}</p>}
+            {subtitle && <p className="mt-1 text-xs leading-snug text-ink-400">{subtitle}</p>}
           </div>
           {action}
         </header>
       )}
-      <div className="p-4 pt-3">{children}</div>
+      <div className="p-4 pt-3 text-[13px] leading-relaxed">{children}</div>
     </section>
   );
 }
@@ -73,7 +73,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em]",
+        "inline-flex items-center gap-1 rounded-[3px] border px-1.5 py-0.5 font-sans text-[11px] font-medium normal-case tracking-normal",
         TONE_CLASS[tone],
         className,
       )}
@@ -105,7 +105,7 @@ export function Button({
       type="button"
       {...rest}
       className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors duration-150",
+        "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[13px] font-medium transition-colors duration-150",
         "disabled:cursor-not-allowed disabled:opacity-40",
         VARIANT_CLASS[variant],
         className,
@@ -162,7 +162,7 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] font-medium uppercase tracking-[0.14em] text-ink-400">
+      <span className="mb-1.5 block text-[12px] font-medium text-ink-300">
         {label}
       </span>
       {children}
@@ -176,8 +176,8 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
     <select
       {...rest}
       className={cx(
-        "w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-ink-100",
-        "focus:border-accent-500 focus:outline-none",
+        "w-full rounded-[5px] border border-ink-700 bg-ink-850 px-3 py-2.5 text-[13px] text-ink-100",
+        "focus:border-accent-400 focus:outline-none",
         className,
       )}
     >
@@ -192,8 +192,8 @@ export function NumberInput({ className, ...rest }: InputHTMLAttributes<HTMLInpu
       type="number"
       {...rest}
       className={cx(
-        "w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 font-mono text-xs text-ink-100 tnum",
-        "focus:border-accent-500 focus:outline-none",
+        "w-full rounded-[5px] border border-ink-700 bg-ink-850 px-3 py-2.5 font-mono text-[13px] text-ink-100 tnum",
+        "focus:border-accent-400 focus:outline-none",
         className,
       )}
     />

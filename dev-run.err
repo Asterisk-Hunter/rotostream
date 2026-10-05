@@ -1,0 +1,9 @@
+[36m[api][0m INFO:     Will watch for changes in these directories: ['C:\\Data\\rotostream\\api']
+[36m[api][0m INFO:     Uvicorn running on http://127.0.0.1:8010 (Press CTRL+C to quit)
+[36m[api][0m INFO:     Started reloader process [4220] using WatchFiles
+[36m[api][0m INFO:     Started server process [31032]
+[36m[api][0m INFO:     Waiting for application startup.
+[36m[api][0m INFO    rotostream: workspace : C:\Data\rotostream\api\workspace
+[36m[api][0m INFO    rotostream: trackers  : naive, sam2_memory
+[36m[api][0m INFO    rotostream: default   : naive (device=auto)
+[36m[api][0m INFO:     Application startup complete.

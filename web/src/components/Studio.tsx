@@ -8,7 +8,7 @@ import { ExportPanel, MemoryPanel, PromptPanel, TrackPanel } from "@/components/
 import { ProjectRail, type UploadState } from "@/components/ProjectRail";
 import { Timeline } from "@/components/Timeline";
 import { AlertIcon, FilmIcon } from "@/components/icons";
-import { Badge, Button, EmptyState, Spinner, StatusDot } from "@/components/ui";
+import { Button, EmptyState, Spinner, StatusDot } from "@/components/ui";
 import { useJob } from "@/hooks/useJob";
 import { ApiError, api, assetUrl } from "@/lib/api";
 import {
@@ -80,16 +80,20 @@ export function Studio() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [clip, setClip] = useState<Clip | null>(null);
+  const [workflowStep, setWorkflowStep] = useState<"prompts" | "track" | "export">("prompts");
 
   const [frameIndex, setFrameIndex] = useState(0);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const promptDrafts = useRef<Record<string, Prompt[]>>({});
+  const promptUndo = useRef<Prompt[][]>([]);
+  const [undoCount, setUndoCount] = useState(0);
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewRequestKey, setPreviewRequestKey] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const [exportKind, setExportKind] = useState<ExportKind>("alpha_webm");
+  const [exportKind, setExportKind] = useState<ExportKind>("replace_bg");
   const [background, setBackground] = useState<BackgroundMode>("blur");
   const [blurRadius, setBlurRadius] = useState(24);
   const [bidirectional, setBidirectional] = useState(true);
@@ -213,6 +217,7 @@ export function Studio() {
           api.listVideos(),
         ]);
         if (cancelled) return;
+        setWorkflowStep("export");
         setVideos(list);
         setClip((current) =>
           current && current.id === selectedId ? next : current,
@@ -336,12 +341,16 @@ export function Studio() {
   // ------------------------------------------------------------------ actions
   /** Selecting a clip is an event, so the per-clip edit state resets here. */
   const beginClip = useCallback(
-    (videoId: string) => {
+      (videoId: string) => {
       if (selectedIdRef.current === videoId) return;
+      if (selectedIdRef.current) promptDrafts.current[selectedIdRef.current] = prompts;
       selectedIdRef.current = videoId;
       setSelectedId(videoId);
+      setWorkflowStep("prompts");
       setFrameIndex(0);
-      setPrompts([]);
+      setPrompts(promptDrafts.current[videoId] ?? []);
+      promptUndo.current = [];
+      setUndoCount(0);
       setEditing(false);
       setPreviewError(null);
       setPreviewBusy(false);
@@ -352,7 +361,7 @@ export function Studio() {
       setExportJobId(null);
       releasePreview();
     },
-    [releasePreview],
+    [releasePreview, prompts],
   );
 
   const handleUpload = useCallback(
@@ -385,12 +394,15 @@ export function Studio() {
   const handleDelete = useCallback(
     async (videoId: string) => {
       try {
-        await api.deleteVideo(videoId);
+      await api.deleteVideo(videoId);
+      delete promptDrafts.current[videoId];
         setVideos((list) => list.filter((entry) => entry.id !== videoId));
         if (selectedIdRef.current === videoId) {
           selectedIdRef.current = null;
           setSelectedId(null);
           setPrompts([]);
+          promptUndo.current = [];
+          setUndoCount(0);
           releasePreview();
         }
       } catch (cause) {
@@ -402,6 +414,8 @@ export function Studio() {
 
   const addPoint = useCallback(
     (point: PointPrompt) => {
+      promptUndo.current = [...promptUndo.current.slice(-29), prompts];
+      setUndoCount((count) => Math.min(30, count + 1));
       setEditing(true);
       setPrompts((list) => {
         const existing = list.find((entry) => entry.frame_index === frameIndex);
@@ -415,11 +429,13 @@ export function Studio() {
         );
       });
     },
-    [frameIndex],
+    [frameIndex, prompts],
   );
 
   const addBox = useCallback(
     (box: BoxPrompt) => {
+      promptUndo.current = [...promptUndo.current.slice(-29), prompts];
+      setUndoCount((count) => Math.min(30, count + 1));
       setEditing(true);
       setPrompts((list) => {
         const existing = list.find((entry) => entry.frame_index === frameIndex);
@@ -431,10 +447,12 @@ export function Studio() {
         return list.map((entry) => entry.frame_index === frameIndex ? { ...entry, box } : entry);
       });
     },
-    [frameIndex],
+    [frameIndex, prompts],
   );
 
   const removePoint = useCallback((targetFrame: number, pointIndex: number) => {
+    promptUndo.current = [...promptUndo.current.slice(-29), prompts];
+    setUndoCount((count) => Math.min(30, count + 1));
     setEditing(true);
     setPrompts((list) =>
       list
@@ -445,16 +463,37 @@ export function Studio() {
         )
         .filter((entry) => entry.points.length > 0 || entry.box !== null),
     );
-  }, []);
+  }, [prompts]);
+
+  const removeCurrentBox = useCallback(() => {
+    promptUndo.current = [...promptUndo.current.slice(-29), prompts];
+    setUndoCount((count) => Math.min(30, count + 1));
+    setEditing(true);
+    setPrompts((list) => list.map((entry) => entry.frame_index === frameIndex ? { ...entry, box: null } : entry)
+      .filter((entry) => entry.points.length > 0 || entry.box !== null));
+  }, [frameIndex, prompts]);
 
   const clearFrame = useCallback(() => {
+    promptUndo.current = [...promptUndo.current.slice(-29), prompts];
+    setUndoCount((count) => Math.min(30, count + 1));
     setEditing(true);
     setPrompts((list) => list.filter((entry) => entry.frame_index !== frameIndex));
-  }, [frameIndex]);
+  }, [frameIndex, prompts]);
 
   const clearAll = useCallback(() => {
+    promptUndo.current = [...promptUndo.current.slice(-29), prompts];
+    setUndoCount((count) => Math.min(30, count + 1));
     setEditing(false);
     setPrompts([]);
+    setPreviewError(null);
+  }, [prompts]);
+
+  const undoPrompt = useCallback(() => {
+    const previous = promptUndo.current.pop();
+    if (!previous) return;
+    setPrompts(previous);
+    setUndoCount((count) => Math.max(0, count - 1));
+    setEditing(true);
     setPreviewError(null);
   }, []);
 
@@ -463,6 +502,7 @@ export function Studio() {
   const handleTrack = useCallback(async () => {
     if (!video || !hasPositiveSeed || submittingRef.current.track || trackJob.active) return;
     submittingRef.current.track = true;
+    setWorkflowStep("track");
     setTrackSubmitting(true);
     try {
       const job = await api.startTracking(video.id, {
@@ -540,54 +580,20 @@ export function Studio() {
       : null;
 
   return (
-    <div className="mx-auto flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-b border-ink-800/90 bg-ink-950/75 px-5 py-3 backdrop-blur-xl">
-        <div className="flex min-w-0 items-baseline gap-3">
-          <h1 className="shrink-0 text-[15px] font-semibold tracking-[-0.035em] text-ink-100">
-            Roto<span className="text-accent-400">Stream</span>
-          </h1>
-          <span className="hidden h-3 w-px bg-ink-700 sm:block" />
-          <p className="hidden truncate text-[12px] text-ink-400 md:block">
-            {video ? video.filename : "Video segmentation workspace"}
-          </p>
+    <div className="studio-shell flex flex-col lg:h-screen lg:overflow-hidden">
+      <a href="#editor-main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:bg-ink-800 focus:px-4 focus:py-3">Skip to editor</a>
+      <header className="studio-topbar flex shrink-0 items-center justify-between gap-4 border-b px-4 py-2.5 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <h1 className="shrink-0 text-[15px] font-semibold tracking-[-0.04em] text-ink-100">Roto<span className="text-accent-400">Stream</span></h1>
+          <span className="hidden h-4 w-px bg-ink-700 sm:block" />
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-medium text-ink-200">{video ? video.filename : "Untitled project"}</p>
+            <p className="hidden text-[10px] text-ink-500 sm:block">Rotoscoping workspace</p>
+          </div>
         </div>
-
-        <div className="flex items-center gap-2.5">
-          {health ? (
-            <>
-              <Badge tone="accent">{health.device}</Badge>
-              <span className="hidden items-center gap-1.5 text-[10px] text-ink-500 sm:flex">
-                <StatusDot
-                  ok={health.ffmpeg}
-                  title={health.ffmpeg ? "ffmpeg found" : "ffmpeg missing from PATH"}
-                />
-                ffmpeg
-              </span>
-              <span className="hidden items-center gap-1.5 text-[10px] text-ink-500 sm:flex">
-                <StatusDot
-                  ok={health.torch}
-                  title={health.torch ? "torch importable" : "torch not installed"}
-                />
-                torch
-              </span>
-              <span className="tnum font-mono text-[10px] text-ink-500">v{health.version}</span>
-            </>
-          ) : (
-            !bootError && <Spinner />
-          )}
-          <button
-            type="button"
-            onClick={async () => {
-              const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
-              if (response.ok) {
-                router.replace("/login");
-                router.refresh();
-              }
-            }}
-            className="ml-1 rounded-md border border-ink-700/80 px-2.5 py-1.5 text-[10px] font-medium text-ink-400 transition hover:border-ink-500 hover:text-ink-100"
-          >
-            Sign out
-          </button>
+        <div className="flex shrink-0 items-center gap-3">
+          {health ? <span className="hidden items-center gap-2 text-[11px] text-ink-400 sm:flex"><StatusDot ok={health.device !== "cpu"} title={`Processing on ${health.device}`} />{health.device}</span> : !bootError && <Spinner />}
+          <button type="button" onClick={async () => { const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }); if (response.ok) { router.replace("/login"); router.refresh(); } }} className="border-l border-ink-700 pl-3 text-xs text-ink-400 transition-colors hover:text-ink-100">Sign out</button>
         </div>
       </header>
 
@@ -600,8 +606,8 @@ export function Studio() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[264px_minmax(0,1fr)_352px] lg:overflow-hidden">
-        <div className="min-h-0 border-r border-ink-800/70 pr-4 lg:overflow-y-auto">
+      <div className="studio-layout">
+        <div className="studio-library">
           <ProjectRail
             videos={videos}
             selectedId={selectedId}
@@ -612,7 +618,7 @@ export function Studio() {
           />
         </div>
 
-        <main className="flex min-h-0 flex-col gap-4">
+        <main id="editor-main" className="studio-main">
           {ready && video ? (
             <>
               <FrameStage
@@ -636,12 +642,16 @@ export function Studio() {
                 }
                 onAddPoint={addPoint}
                 onAddBox={addBox}
+                onRemovePoint={(index) => removePoint(frameIndex, index)}
+                onRemoveBox={removeCurrentBox}
               />
               <Timeline
                 nFrames={frames}
                 index={frameIndex}
                 scores={session?.scores ?? []}
                 promptFrames={editing ? prompts.map((entry) => entry.frame_index) : session?.prompt_frames ?? []}
+                fps={video.fps}
+                videoId={video.id}
                 onIndexChange={setFrameIndex}
               />
             </>
@@ -674,17 +684,28 @@ export function Studio() {
           )}
         </main>
 
-        <aside className="flex min-h-0 flex-col gap-3 lg:overflow-y-auto lg:pr-0.5">
-          <PromptPanel
+        <aside className="studio-inspector" aria-label="Editing workflow">
+          <nav className="step-nav mb-4" aria-label="Editing steps">
+            {(["prompts", "track", "export"] as const).map((step, index) => (
+              <button key={step} type="button" aria-current={workflowStep === step ? "step" : undefined} data-complete={step === "prompts" ? prompts.length > 0 : step === "track" ? Boolean(session) : undefined} onClick={() => setWorkflowStep(step)} className="text-xs font-medium">
+                <span className="mr-1.5 font-mono text-[10px] text-ink-500">0{index + 1}</span>{step === "prompts" ? "Prompts" : step === "track" ? "Track" : "Export"}
+              </button>
+            ))}
+          </nav>
+          {workflowStep === "prompts" && <PromptPanel
             prompts={prompts}
             frameIndex={frameIndex}
             preview={freshPreview}
+            previewBusy={previewBusy && previewRequestKey === previewKey}
             error={currentPoints.length || currentBox ? previewError : null}
             onRemovePoint={removePoint}
+            onUndo={undoPrompt}
+            canUndo={undoCount > 0}
+            onRemoveBox={removeCurrentBox}
             onClearFrame={clearFrame}
             onClearAll={clearAll}
-          />
-          <TrackPanel
+          />}
+          {workflowStep === "track" && <TrackPanel
             models={models}
             model={model}
             onModelChange={setModel}
@@ -699,8 +720,8 @@ export function Studio() {
             onTrack={handleTrack}
             onCancel={handleCancel}
             session={session}
-          />
-          <ExportPanel
+          />}
+          {workflowStep === "export" && <ExportPanel
             videoId={video?.id ?? null}
             kind={exportKind}
             onKindChange={setExportKind}
@@ -716,8 +737,16 @@ export function Studio() {
             onExport={handleExport}
             exports={exportList}
             onRefresh={refreshExports}
-          />
-          <MemoryPanel session={session} usesMemory={models.find((entry) => entry.name === session?.model)?.uses_memory ?? false} />
+          />}
+          <details className="advanced-disclosure">
+            <summary>Runtime details</summary>
+            <div>
+              <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-ink-400">
+                {health && <><span className="flex items-center gap-1.5"><StatusDot ok={health.ffmpeg} title={health.ffmpeg ? "ffmpeg found" : "ffmpeg missing"} />ffmpeg</span><span className="flex items-center gap-1.5"><StatusDot ok={health.torch} title={health.torch ? "torch importable" : "torch not installed"} />PyTorch</span><span className="font-mono text-ink-500">v{health.version}</span></>}
+              </div>
+              <MemoryPanel session={session} usesMemory={models.find((entry) => entry.name === session?.model)?.uses_memory ?? false} />
+            </div>
+          </details>
         </aside>
       </div>
     </div>

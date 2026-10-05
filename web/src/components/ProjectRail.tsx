@@ -58,11 +58,12 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
       />
 
       <div className="flex items-center justify-between px-1">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">Clips</span>
-        <span className="font-mono text-[10px] text-ink-500">{videos.length}</span>
+        <span className="text-[13px] font-semibold text-ink-100">Project clips</span>
+        <span className="font-mono text-[11px] text-ink-400">{videos.length}</span>
       </div>
 
-      <div
+      <button
+        type="button"
         onDragOver={(event) => {
           event.preventDefault();
           setDragging(true);
@@ -74,15 +75,10 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
           accept(event.dataTransfer.files);
         }}
         onClick={pick}
-        role="button"
         aria-label="Upload a video clip"
-        aria-disabled={upload.active}
-        tabIndex={upload.active ? -1 : 0}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(); }
-        }}
+        disabled={upload.active}
         className={cx(
-          "cursor-pointer rounded-panel border border-dashed px-4 py-6 text-center transition-colors",
+          "clip-dropzone w-full cursor-pointer rounded-[6px] border border-dashed text-center transition-colors",
           dragging
             ? "border-accent-400 bg-accent-500/10"
             : "border-ink-600 bg-ink-850/40 hover:border-ink-500 hover:bg-ink-850",
@@ -93,10 +89,10 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
           {upload.active ? "Uploading…" : "Drop a clip or click to browse"}
         </p>
         <p className="mt-1 text-[11px] text-ink-500">MP4, MOV, WebM, MKV</p>
-      </div>
+      </button>
 
       {upload.active && (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" role="status" aria-live="polite">
           <div className="flex items-center justify-between gap-2 text-[11px] text-ink-300">
             <span className="truncate">{upload.filename}</span>
             <span className="tnum font-mono">{Math.round(upload.progress * 100)}%</span>
@@ -126,7 +122,7 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
             <div
               key={video.id}
               className={cx(
-                "group relative rounded-panel border transition-colors",
+                "clip-card group relative rounded-panel border transition-colors",
                 selected
                   ? "border-accent-500/50 bg-accent-500/[0.08] shadow-[inset_2px_0_0_var(--color-accent-400)]"
                   : "border-ink-800 bg-ink-900/50 hover:border-ink-700",
@@ -138,7 +134,7 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
                 aria-pressed={selected}
                 className="flex w-full gap-3 p-2.5 text-left"
               >
-                <span className="checker h-11 w-16 shrink-0 overflow-hidden rounded border border-ink-700">
+                  <span className="h-11 w-16 shrink-0 overflow-hidden rounded-[4px] border border-ink-700 bg-ink-800">
                   {video.status === "ready" ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -158,7 +154,7 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium text-ink-100">{video.filename}</span>
+                  <span className="block truncate text-[13px] font-medium text-ink-100">{video.filename}</span>
                   <span className="mt-0.5 flex items-center gap-1.5">
                     <Badge tone={STATUS_TONE[video.status]}>{video.status}</Badge>
                     {video.status === "ready" && (

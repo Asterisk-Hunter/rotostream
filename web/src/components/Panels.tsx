@@ -22,22 +22,31 @@ export function PromptPanel({
   prompts,
   frameIndex,
   preview,
+  previewBusy,
   error,
   onRemovePoint,
+  onUndo,
+  canUndo,
+  onRemoveBox,
   onClearFrame,
   onClearAll,
 }: {
   prompts: Prompt[];
   frameIndex: number;
   preview: { area: number; ratio: number } | null;
+  previewBusy: boolean;
   error: string | null;
   onRemovePoint: (frameIndex: number, pointIndex: number) => void;
+  onUndo: () => void;
+  canUndo: boolean;
+  onRemoveBox: () => void;
   onClearFrame: () => void;
   onClearAll: () => void;
 }) {
   const current = prompts.find((prompt) => prompt.frame_index === frameIndex);
   const points = current?.points ?? [];
   const box = current?.box ?? null;
+  const hasForeground = Boolean(box) || points.some((point) => point.positive);
   const totalSelections = prompts.reduce((sum, prompt) => sum + prompt.points.length + (prompt.box ? 1 : 0), 0);
 
   return (
@@ -54,16 +63,15 @@ export function PromptPanel({
       }
     >
       <div className="space-y-3">
-        <div className="rounded-md border border-ink-700 bg-ink-800/50 px-2.5 py-2">
-          <p className="text-[11px] text-ink-300">
-            <span className="text-accent-300">Start with Draw box</span> for the subject. Add a{" "}
-            <span className="text-positive">foreground click</span> or <span className="text-negative">background click</span> to correct the preview.
+        <div className="border-l-2 border-accent-400/70 bg-ink-800/35 px-3 py-2.5">
+          <p className="text-xs leading-relaxed text-ink-300">
+            Draw a box around the subject, then add or remove clicks to refine the mask.
           </p>
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="text-[11px] uppercase tracking-wider text-ink-400">
-            On frame <span className="tnum font-mono">{frameIndex + 1}</span>
+          <span className="text-xs text-ink-300">
+            Frame <span className="tnum font-mono text-ink-100">{frameIndex + 1}</span>
           </span>
           {current && (
             <Button variant="ghost" onClick={onClearFrame} className="px-1.5 py-0.5 text-[10px]">
@@ -80,9 +88,9 @@ export function PromptPanel({
           <ul className="flex flex-wrap gap-1.5">
             {box && (
               <li>
-                <span className="flex items-center gap-1.5 rounded-full border border-accent-400/40 bg-accent-500/10 px-2 py-1 font-mono text-[10px] text-accent-200">
-                  box {box.x1 - box.x0}×{box.y1 - box.y0}
-                </span>
+                <button type="button" onClick={onRemoveBox} title="Remove box" aria-label="Remove box prompt" className="rounded border border-accent-400/40 bg-accent-500/10 px-2 py-1 font-mono text-[10px] text-accent-200 hover:bg-accent-500/20">
+                  Box {box.x1 - box.x0}×{box.y1 - box.y0} · remove
+                </button>
               </li>
             )}
             {points.map((point, index) => (
@@ -93,7 +101,7 @@ export function PromptPanel({
                   title="Remove this click"
                   aria-label={`Remove ${point.positive ? "foreground" : "background"} click at ${point.x}, ${point.y}`}
                   className={cx(
-                    "group flex items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-[10px] tnum transition-colors",
+                    "group flex items-center gap-1.5 rounded-[4px] border px-2 py-1.5 font-mono text-[11px] tnum transition-colors",
                     point.positive
                       ? "border-positive/40 bg-positive/10 text-positive hover:bg-positive/20"
                       : "border-negative/40 bg-negative/10 text-negative hover:bg-negative/20",
@@ -110,6 +118,20 @@ export function PromptPanel({
           </ul>
         )}
 
+        {canUndo && <Button variant="secondary" onClick={onUndo} className="w-full">Undo last prompt change</Button>}
+
+        {current && !hasForeground && (
+          <p role="status" className="rounded-md border border-warn/30 bg-warn/10 px-2.5 py-2 text-[11px] leading-snug text-warn">
+            Add a foreground click on the object before tracking.
+          </p>
+        )}
+
+        {previewBusy && (
+          <p role="status" className="flex items-center gap-2 text-[11px] text-ink-300">
+            <Spinner /> Updating preview…
+          </p>
+        )}
+
         {error && (
           <p className="flex items-start gap-1.5 rounded-md border border-negative/30 bg-negative/10 px-2.5 py-2 text-[11px] leading-snug text-negative">
             <AlertIcon className="mt-px h-3.5 w-3.5 shrink-0" />
@@ -118,20 +140,35 @@ export function PromptPanel({
         )}
 
         {preview && (
-          <dl className="grid grid-cols-2 gap-2 border-t border-ink-700/70 pt-3">
-            <div>
-              <dt className="text-[10px] uppercase tracking-wider text-ink-400">Mask area</dt>
-              <dd className="tnum font-mono text-xs text-ink-100">
-                {preview.area.toLocaleString("en-US")} px
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] uppercase tracking-wider text-ink-400">Coverage</dt>
-              <dd className="tnum font-mono text-xs text-ink-100">
-                {formatPercent(preview.ratio, 2)}
-              </dd>
-            </div>
-          </dl>
+          <div className="space-y-2 border-t border-ink-700/70 pt-3">
+            <dl className="grid grid-cols-2 gap-2">
+              <div>
+                <dt className="text-[11px] text-ink-400">Mask area</dt>
+                <dd className="tnum font-mono text-xs text-ink-100">
+                  {preview.area.toLocaleString("en-US")} px
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] text-ink-400">Coverage</dt>
+                <dd className="tnum font-mono text-xs text-ink-100">
+                  {formatPercent(preview.ratio, 2)}
+                </dd>
+              </div>
+            </dl>
+            {preview.ratio < 0.002 ? (
+              <p role="status" className="text-[11px] leading-snug text-warn">
+                The mask is very small. Add a foreground click on the subject or draw a tighter box around it.
+              </p>
+            ) : preview.ratio > 0.85 ? (
+              <p role="status" className="text-[11px] leading-snug text-warn">
+                The mask covers most of the frame. Add a background click outside the subject to narrow it.
+              </p>
+            ) : (
+              <p role="status" className="text-[11px] leading-snug text-ink-400">
+                Check the outline. Add a foreground click where it misses, or a background click where it spills.
+              </p>
+            )}
+          </div>
         )}
       </div>
     </Panel>
@@ -268,9 +305,15 @@ export function TrackPanel({
               />
               <Stat label="Model" value={session.model} />
             </dl>
-            <p className="rounded-lg border border-positive/20 bg-positive/[0.06] px-3 py-2 text-[11px] text-ink-300">
-              <span className="font-medium text-positive">Mask ready.</span> Choose a format in Export to create a downloadable file.
-            </p>
+            {session.absent_frames.length > 0 ? (
+              <p role="alert" className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] leading-snug text-warn">
+                The object is missing on {session.absent_frames.length} frame{session.absent_frames.length === 1 ? "" : "s"}. Review the red gaps in the timeline and add prompts there, then track again before exporting.
+              </p>
+            ) : (
+              <p className="rounded-lg border border-positive/20 bg-positive/[0.06] px-3 py-2 text-[11px] text-ink-300">
+                <span className="font-medium text-positive">Mask ready.</span> Choose a format in Export to create a downloadable file.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -281,7 +324,7 @@ export function TrackPanel({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-[10px] uppercase tracking-wider text-ink-400">{label}</dt>
+      <dt className="text-[11px] text-ink-400">{label}</dt>
       <dd className="tnum truncate font-mono text-xs text-ink-100">{value}</dd>
     </div>
   );
@@ -406,6 +449,10 @@ export function ExportPanel({
       }
     >
       <div className="space-y-3">
+        <p className="rounded-md border border-ink-700 bg-ink-800/50 px-2.5 py-2 text-[11px] leading-snug text-ink-300">
+          Track creates the mask. Choose <span className="font-medium text-ink-100">Edited MP4</span> for a visible background change, or <span className="font-medium text-ink-100">Transparent cutout</span> to composite the subject in an editor.
+        </p>
+
         <Field label="Format" hint={EXPORT_LABELS[kind].hint}>
           <Select value={kind} onChange={(event) => onKindChange(event.target.value as ExportKind)}>
             {kinds.map((entry) => (

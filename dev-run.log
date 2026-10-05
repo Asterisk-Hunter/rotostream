@@ -1,0 +1,35 @@
+
+> rotostream@0.1.0 dev C:\Data\rotostream
+> node scripts/dev.mjs
+
+[2m[dev][0m api http://127.0.0.1:8010/docs   web http://localhost:3000
+[35m[web][0m ▲ Next.js 16.3.8 (Turbopack)
+[35m[web][0m - Local:         http://localhost:3000
+[35m[web][0m - Network:       http://172.16.196.183:3000
+[35m[web][0m ✓ Ready in 7.0s
+[35m[web][0m ✓ Running next.config.ts took 1229ms
+[35m[web][0m 
+[35m[web][0m ○ Compiling / ...
+[35m[web][0m  GET / 200 in 8.5s (next.js: 8.2s, application-code: 301ms)
+[35m[web][0m  GET / 200 in 48ms (next.js: 5ms, application-code: 43ms)
+[36m[api][0m INFO:     127.0.0.1:55197 - "GET /api/videos HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:59298 - "GET /api/videos HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:61441 - "GET /api/models HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:59298 - "GET /api/models HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:65454 - "GET /api/health HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:57388 - "GET /api/health HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:57388 - "GET /api/videos/dc821d156626 HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:59436 - "GET /api/videos/dc821d156626/thumbnail HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:65454 - "GET /api/videos/dc821d156626/exports HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:57388 - "GET /api/videos/dc821d156626/sessions/latest HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:59436 - "GET /api/videos/dc821d156626/frames/0 HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:55840 - "GET /api/videos/dc821d156626/overlays/0?session_id=838f3731a027 HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:49806 - "GET /api/videos/508af1e55df4 HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:49806 - "OPTIONS /api/videos/508af1e55df4 HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:49806 - "DELETE /api/videos/508af1e55df4 HTTP/1.1" 204 No Content
+[36m[api][0m INFO:     127.0.0.1:49806 - "GET /api/videos/dc821d156626 HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:64165 - "GET /api/videos/dc821d156626/exports HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:49806 - "GET /api/videos/dc821d156626/sessions/latest HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:63202 - "GET /api/videos/dc821d156626/frames/4 HTTP/1.1" 200 OK
+[36m[api][0m INFO:     127.0.0.1:61124 - "GET /api/videos/dc821d156626/overlays/4?session_id=838f3731a027 HTTP/1.1" 200 OK
+[36m[api][0m exited (code=4294967295 signal=null)

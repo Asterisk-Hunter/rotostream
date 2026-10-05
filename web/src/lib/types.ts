@@ -150,18 +150,18 @@ export interface PreviewMask {
 
 export const EXPORT_LABELS: Record<ExportKind, { label: string; hint: string; ext: string }> = {
   alpha_webm: {
-    label: "Transparent video",
-    hint: "VP9 WebM with an alpha channel — drop straight into an editor",
+    label: "Transparent cutout",
+    hint: "Keeps the selected subject and removes the background. Some desktop players ignore WebM transparency; import it into an editor or choose Edited MP4 to preview it.",
     ext: "webm",
   },
   overlay_mp4: {
-    label: "Mask overlay",
-    hint: "H.264 preview with the mask tinted on top",
+    label: "Mask preview MP4",
+    hint: "Original clip with the tracked mask tinted on top. Use this to inspect edges; it does not remove the background.",
     ext: "mp4",
   },
   replace_bg: {
-    label: "Replace background",
-    hint: "Keeps the object, blurs or replaces everything else",
+    label: "Edited MP4",
+    hint: "Keeps the selected subject and visibly blurs or replaces the background. Plays in standard video players.",
     ext: "mp4",
   },
   cutout_zip: { label: "RGBA PNG sequence", hint: "One cutout per frame, zipped", ext: "zip" },

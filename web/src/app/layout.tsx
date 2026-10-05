@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
+
+const plexSans = IBM_Plex_Sans({ subsets: ["latin"], variable: "--font-plex-sans", display: "swap" });
+const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: "400", variable: "--font-plex-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "RotoStream — AI rotoscoping studio",
@@ -11,7 +15,7 @@ export const metadata: Metadata = {
 // `tsc --noEmit` works before the first `next build` has emitted types.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
       <body className="font-sans min-h-screen antialiased">{children}</body>
     </html>
   );

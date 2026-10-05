@@ -1,0 +1,11 @@
+{
+  "scanned": "2026-10-05",
+  "scope": "editor app and shared auth shell",
+  "framework": "Next.js 16.3.8 App Router / React 19.2.8 (web/package.json)",
+  "font_stack_before": "ui-sans-serif/system sans and ui-monospace in web/src/app/globals.css",
+  "palette_before": "Tailwind ink-950–ink-100 graphite palette, sky-400 mask accent, green/red/amber statuses in web/src/app/globals.css",
+  "motion_before": "No animation library; CSS transitions and reduced-motion override in web/src/app/globals.css",
+  "spacing_before": "Tailwind default spacing utilities; no project spacing tokens",
+  "preserve": ["RotoStream wordmark", "dark editing workspace", "API-matched #38bdf8 mask accent", "existing routes and processing behavior"],
+  "introduce": ["IBM Plex Sans and IBM Plex Mono", "named slate surface and 4-point spacing tokens", "viewer-led Workbench layout", "compact Prompt / Track / Export flow", "filmstrip and confidence timeline"]
+}

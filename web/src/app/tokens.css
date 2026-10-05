@@ -1,0 +1,55 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: RotoStream Cut · enrichment: none · nav: editor shell · footer: status rail */
+:root {
+  --studio-canvas: #0b0e12;
+  --studio-shell: #11161b;
+  --studio-surface: #161d23;
+  --studio-raised: #1e272e;
+  --studio-raised-hover: #253039;
+  --studio-rule: #35414a;
+  --studio-rule-strong: #46545f;
+  --studio-text: #f2f5f7;
+  --studio-secondary: #b5c0c8;
+  --studio-muted: #87949e;
+  --studio-accent: #38bdf8;
+  --studio-positive: #4ade80;
+  --studio-negative: #fb7185;
+  --studio-warn: #fbbf24;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-ui: 180ms;
+}
+
+@theme {
+  --color-ink-950: var(--studio-canvas);
+  --color-ink-900: var(--studio-shell);
+  --color-ink-850: var(--studio-surface);
+  --color-ink-800: var(--studio-raised);
+  --color-ink-750: var(--studio-raised-hover);
+  --color-ink-700: var(--studio-rule);
+  --color-ink-600: var(--studio-rule-strong);
+  --color-ink-500: var(--studio-muted);
+  --color-ink-400: var(--studio-secondary);
+  --color-ink-300: #cbd3d9;
+  --color-ink-200: #dbe1e5;
+  --color-ink-100: var(--studio-text);
+
+  --color-accent-500: #0ea5e9;
+  --color-accent-400: var(--studio-accent);
+  --color-accent-300: #7dd3fc;
+  --color-positive: var(--studio-positive);
+  --color-negative: var(--studio-negative);
+  --color-warn: var(--studio-warn);
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --radius-panel: 0.375rem;
+}

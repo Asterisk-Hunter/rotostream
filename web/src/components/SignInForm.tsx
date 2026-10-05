@@ -55,7 +55,7 @@ export function SignInForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
-        <label htmlFor="username" className="mb-2 block text-[11px] font-medium text-ink-300">Username</label>
+        <label htmlFor="username" className="mb-2 block text-[13px] font-medium text-ink-200">Username</label>
         <input
           autoComplete="username"
           autoCapitalize="none"
@@ -65,14 +65,13 @@ export function SignInForm() {
           name="username"
           value={username}
           onChange={(event) => setUsername(event.target.value)}
-          className="h-11 w-full rounded-lg border border-ink-700 bg-ink-950/80 px-3.5 text-[13px] text-ink-100 outline-none transition placeholder:text-ink-600 hover:border-ink-600 focus:border-accent-400/70 focus:ring-2 focus:ring-accent-400/10"
-          placeholder="Your editor username"
+          className="h-11 w-full rounded-[5px] border border-ink-700 bg-ink-950 px-3 text-[14px] text-ink-100 outline-none transition-colors placeholder:text-ink-500 hover:border-ink-600 focus:border-accent-400"
+          placeholder="Username"
         />
       </div>
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <label htmlFor="password" className="text-[11px] font-medium text-ink-300">Password</label>
-          <span className="font-mono text-[9px] tracking-wide text-ink-600">PRIVATE</span>
+          <label htmlFor="password" className="text-[13px] font-medium text-ink-200">Password</label>
         </div>
         <div className="relative">
           <input
@@ -83,32 +82,31 @@ export function SignInForm() {
             type={showPassword ? "text" : "password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="h-11 w-full rounded-lg border border-ink-700 bg-ink-950/80 px-3.5 pr-[4.5rem] text-[13px] tracking-[0.08em] text-ink-100 outline-none transition placeholder:font-sans placeholder:tracking-normal placeholder:text-ink-600 hover:border-ink-600 focus:border-accent-400/70 focus:ring-2 focus:ring-accent-400/10"
-            placeholder="Enter your password"
+            className="h-11 w-full rounded-[5px] border border-ink-700 bg-ink-950 px-3 pr-[4.5rem] text-[14px] text-ink-100 outline-none transition-colors placeholder:font-sans placeholder:tracking-normal placeholder:text-ink-500 hover:border-ink-600 focus:border-accent-400"
+            placeholder="Password"
           />
           <button
             type="button"
             aria-label={showPassword ? "Hide password" : "Show password"}
             aria-pressed={showPassword}
             onClick={() => setShowPassword((visible) => !visible)}
-            className="absolute inset-y-0 right-0 rounded-r-lg px-3 text-[10px] font-medium text-ink-500 transition hover:text-ink-200 focus-visible:text-accent-300"
+            className="absolute inset-y-0 right-0 border-l border-ink-800 px-3 text-xs text-ink-400 transition-colors hover:text-ink-100 focus-visible:text-accent-300"
           >
             {showPassword ? "Hide" : "Show"}
           </button>
         </div>
       </div>
 
-      {error && <p role="alert" className="rounded-lg border border-negative/25 bg-negative/[0.07] px-3 py-2.5 text-[11px] leading-5 text-negative">{error}</p>}
+      {error && <p role="alert" className="border border-negative/30 bg-negative/10 px-3 py-2.5 text-[13px] leading-5 text-negative">{error}</p>}
 
       <button
         type="submit"
         disabled={submitting || !username || !password}
-        className="group flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-accent-300/25 bg-accent-400 text-[12px] font-semibold text-ink-950 shadow-[0_8px_28px_rgba(14,165,233,0.16)] transition hover:border-accent-200 hover:bg-accent-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-300 disabled:cursor-wait disabled:opacity-55"
+        className="flex h-11 w-full items-center justify-center gap-2 rounded-[5px] bg-accent-400 text-[13px] font-semibold text-ink-950 transition-colors hover:bg-accent-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-300 disabled:cursor-wait disabled:opacity-55"
       >
-        {submitting ? "Opening workspace…" : "Enter workspace"}
-        {!submitting && <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">→</span>}
+        {submitting ? "Signing in…" : "Sign in"}
       </button>
-      <p className="text-center text-[10px] leading-5 text-ink-600">Your session is protected and expires automatically after 8 hours.</p>
+      <p className="text-center text-[11px] leading-5 text-ink-500">Your sign-in expires after 8 hours.</p>
     </form>
   );
 }
