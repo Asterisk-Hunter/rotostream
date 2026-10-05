@@ -95,6 +95,8 @@ The [deployment guide](docs/DEPLOYMENT.md) covers native GPU inference, TLS/SSH
 remote access, readiness, limits, backup/restore and upgrades. This deployment
 supports one editor and one API worker; jobs and compute locks are in-process.
 For a managed Cloud Run deployment, see [the Cloud Run guide](deploy/cloudrun/README.md).
+For the Vercel-hosted studio frontend backed by Cloud Run, see
+[the Vercel deployment guide](deploy/vercel/README.md).
 
 ## Verify
 
