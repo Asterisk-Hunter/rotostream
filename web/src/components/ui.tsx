@@ -50,41 +50,11 @@ export function Panel({
   );
 }
 
-// --------------------------------------------------------------------- badge
-type Tone = "neutral" | "accent" | "positive" | "negative" | "warn";
-
-const TONE_CLASS: Record<Tone, string> = {
-  neutral: "border-ink-600 bg-ink-800 text-ink-300",
-  accent: "border-accent-500/40 bg-accent-500/10 text-accent-300",
-  positive: "border-positive/30 bg-positive/10 text-positive",
-  negative: "border-negative/30 bg-negative/10 text-negative",
-  warn: "border-warn/30 bg-warn/10 text-warn",
-};
-
-export function Badge({
-  tone = "neutral",
-  children,
-  className,
-}: {
-  tone?: Tone;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cx(
-        "inline-flex items-center gap-1 rounded-[3px] border px-1.5 py-0.5 font-sans text-[11px] font-medium normal-case tracking-normal",
-        TONE_CLASS[tone],
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
 // -------------------------------------------------------------------- button
 type Variant = "primary" | "secondary" | "ghost" | "danger";
+
+/** Tones used by Meter; the panels own their own status wording. */
+type Tone = "neutral" | "accent" | "positive" | "negative" | "warn";
 
 const VARIANT_CLASS: Record<Variant, string> = {
   primary:

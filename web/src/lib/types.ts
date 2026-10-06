@@ -35,6 +35,8 @@ export interface ModelInfo {
   checkpoint_hint: string;
   error: string;
   is_default: boolean;
+  /** True when a background-only prompt frame is a valid instruction for this tracker. */
+  accepts_background_only_prompts: boolean;
 }
 
 export interface Video {
@@ -95,6 +97,28 @@ export interface Session {
   error: string | null;
   scores: FrameScore[];
   memory: Record<string, unknown>;
+  /** The prompts this run was built from; restored so a later run keeps them. */
+  prompts?: Prompt[];
+  quality?: SessionQuality;
+  low_confidence_frames?: number[];
+  background_only_frames?: number[];
+  coverage?: number;
+  sound?: boolean;
+}
+
+/** The API's review summary for a finished run. */
+export interface SessionQuality {
+  threshold: number;
+  n_frames: number;
+  n_masked: number;
+  coverage: number;
+  absent_frames: number[];
+  low_confidence_frames: number[];
+  background_only_frames: number[];
+  problem_frames: number[];
+  mean_score: number;
+  min_score: number;
+  sound: boolean;
 }
 
 export interface PointPrompt {
@@ -116,6 +140,28 @@ export interface Prompt {
   box: BoxPrompt | null;
 }
 
+export interface ExportManifest {
+  kind: ExportKind;
+  label: string;
+  container: string;
+  video_codec: string;
+  keeps: string;
+  width: number;
+  height: number;
+  source_width: number;
+  source_height: number;
+  fps: number;
+  n_frames: number;
+  duration_s: number;
+  has_audio: boolean;
+  audio_preserved: boolean;
+  alpha: boolean;
+  options: Record<string, unknown>;
+  session_id: string | null;
+  model: string | null;
+  notes: string[];
+}
+
 export interface ExportRecord {
   id: string;
   video_id: string;
@@ -126,6 +172,7 @@ export interface ExportRecord {
   size_bytes: number;
   download_url: string;
   error: string | null;
+  manifest?: ExportManifest;
 }
 
 export interface TrackResult {
@@ -148,27 +195,50 @@ export interface PreviewMask {
   ratio: number;
 }
 
-export const EXPORT_LABELS: Record<ExportKind, { label: string; hint: string; ext: string }> = {
+/**
+ * Deliverables, described by what they keep. The detailed promise for a specific
+ * clip (resolution, frame count, audio) comes from the API manifest so the text
+ * before rendering and the file that arrives afterwards cannot disagree.
+ */
+export const EXPORT_LABELS: Record<ExportKind, { label: string; keeps: string; ext: string }> = {
+  replace_bg: {
+    label: "Edited clip",
+    keeps: "subject only, background replaced — plays anywhere",
+    ext: "mp4",
+  },
   alpha_webm: {
     label: "Transparent cutout",
-    hint: "Keeps the selected subject and removes the background. Some desktop players ignore WebM transparency; import it into an editor or choose Edited MP4 to preview it.",
+    keeps: "subject only, background transparent — composite it in an editor",
     ext: "webm",
   },
   overlay_mp4: {
-    label: "Mask preview MP4",
-    hint: "Original clip with the tracked mask tinted on top. Use this to inspect edges; it does not remove the background.",
+    label: "Mask check",
+    keeps: "original footage with the mask tinted on top — inspect the edges",
     ext: "mp4",
   },
-  replace_bg: {
-    label: "Edited MP4",
-    hint: "Keeps the selected subject and visibly blurs or replaces the background. Plays in standard video players.",
-    ext: "mp4",
+  cutout_zip: {
+    label: "Cutout PNG sequence",
+    keeps: "one RGBA PNG per frame, for compositing",
+    ext: "zip",
   },
-  cutout_zip: { label: "RGBA PNG sequence", hint: "One cutout per frame, zipped", ext: "zip" },
-  mask_zip: { label: "Mask PNG sequence", hint: "Binary masks, 0 / 255", ext: "zip" },
+  mask_zip: {
+    label: "Mask PNG sequence",
+    keeps: "binary masks (0 or 255), one per frame",
+    ext: "zip",
+  },
   mask_rle_json: {
-    label: "Mask RLE (JSON)",
-    hint: "COCO-style run-length encoding, for training pipelines",
+    label: "Mask RLE",
+    keeps: "COCO-style run-length masks, for training pipelines",
     ext: "json",
   },
 };
+
+/** Order the picker presents: the visual deliverables first, then mask data. */
+export const EXPORT_ORDER: ExportKind[] = [
+  "replace_bg",
+  "alpha_webm",
+  "overlay_mp4",
+  "cutout_zip",
+  "mask_zip",
+  "mask_rle_json",
+];

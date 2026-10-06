@@ -165,6 +165,9 @@ class MemoryAttentionTracker(TrainableTracker):
             ),
             uses_memory=True,
             trainable=True,
+            # A background-only prompt means "no object on this frame" here, which is
+            # a legitimate instruction rather than a contract violation.
+            accepts_background_only_prompts=True,
             implemented=not missing,
             error=f"Optional model dependencies missing: {', '.join(missing)}. Install api/requirements-model.txt." if missing else "",
             checkpoint_hint=cls.checkpoint_hint,

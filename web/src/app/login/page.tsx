@@ -20,7 +20,7 @@ export default function LoginPage() {
           <section className="max-w-[520px]">
             <p className="text-xs font-medium text-accent-300">Rotoscoping</p>
             <h1 className="mt-5 max-w-[480px] text-4xl font-medium leading-[1.08] tracking-[-0.05em] text-ink-100 sm:text-5xl">
-              Video masks,<br />reviewed frame by frame.
+              Rotoscoping,<br />frame by frame.
             </h1>
             <p className="mt-5 max-w-[430px] text-[15px] leading-7 text-ink-400">
               Mark a subject, track its mask through the clip, and export the result for your edit.

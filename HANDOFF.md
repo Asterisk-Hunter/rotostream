@@ -1,6 +1,6 @@
 # RotoStream handoff
 
-Updated 2026-10-03. Start with [README](README.md), [results](docs/RESULTS.md),
+Updated 2026-10-06. Start with [README](README.md), [results](docs/RESULTS.md),
 [architecture](docs/ARCHITECTURE.md) and [deployment](docs/DEPLOYMENT.md).
 
 ## Current state
@@ -43,6 +43,35 @@ python scripts/render_results.py
 Smoke requires a running API and creates then deletes a test clip. Use the
 [included sample](samples/moving-square.mp4) for manual checks.
 
+## Review states and deliverables (2026-10-06)
+
+The studio reports what a run produced instead of implying that it finished.
+
+- Review rules live in `api/app/quality.py`: a frame the tracker lost, a frame with
+a mask but a score below `LOW_CONFIDENCE_THRESHOLD`, and a frame the user marked as
+background stay three different answers. `web/src/lib/review.ts` mirrors them.
+- `SessionOut` fills `coverage`, `sound`, `low_confidence_frames` and
+`background_only_frames` from those rules, deriving them from a session's own scores
+when the run predates the summary. The 480-frame baseline run with 198 missing
+frames reports coverage 0.5875 and sound false instead of the old defaults.
+- The studio lists, labels and jumps to problem frames, warns before exporting a
+clip with missing masks, and never renders a "mask ready" claim.
+- Every export records a manifest (container, codec, dimensions, fps, frames, audio,
+options, mask-source coverage, warnings) built from the same facts the renderer uses;
+`web/src/lib/exportPlan.ts` shows the same plan before rendering.
+- Video exports mux the source audio when the upload has any (AAC in MP4, Opus in WebM).
+- Sessions store the prompts that produced them, so a reload restores them and the
+studio can say "prompts changed since this run".
+
+Evidence from the same day: the API/ML suite passed (272 passed, 1 expected
+failure), web lint, TypeScript, behavior tests and production build passed, and two
+real exports were re-rendered against the masks they claim — `replace_bg` blur of a
+300-frame clip and of the 480-frame baseline, both within H.264 rounding of the
+reviewed masks (mean |diff| 1.6/255) with the background changed about twice as much
+as the subject. The 480-frame export carries the source audio. Masks from a single
+prompt stayed on the subject across the clip (inside-minus-ring luminance +63.6 mean,
++33.4 min over sampled frames; consecutive-mask IoU 0.941 mean, 0.707 min).
+
 ## Navigation
 
 | Concern | Source |
@@ -50,6 +79,7 @@ Smoke requires a running API and creates then deletes a test clip. Use the
 | Contract and plugins | `api/app/models/base.py`, `registry.py` |
 | Model and training | `api/app/models/sam2_memory.py`, `sam2_stack/` |
 | Causal planner and preview cache | `api/app/pipeline.py` |
+| Review rules and session coverage | `api/app/quality.py` |
 | Bounded worker and compute gate | `api/app/jobs.py` |
 | Storage and restart recovery | `api/app/storage.py`, `main.py` |
 | Video/export lifecycle | `api/app/video.py`, `routers/` |
@@ -65,6 +95,8 @@ Smoke requires a running API and creates then deletes a test clip. Use the
 - Mask prompts are copied read-only and cannot mix with point/box prompts.
 - Preview and jobs share a compute gate; tracking evicts warm preview weights.
 - Sessions cannot be overwritten; exports require successful sessions.
+- A run with missing or weak frames is never described as complete, and an export's
+  manifest is built from the same facts as its artifact, so the two cannot disagree.
 - Metadata publishes atomically, paths are contained, and media stays behind authentication.
 - Freeze Hiera only; decoder skip projections must retain gradients.
 - Trained-stack checkpoints restore the released encoder and validate contributed keys.

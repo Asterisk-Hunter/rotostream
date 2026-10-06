@@ -32,6 +32,8 @@ from .models.base import (
     check_frame_result,
 )
 from .models.frames import DirectoryFrameSource
+from .prompts import prompt_set_to_dict
+from .quality import summarize_quality
 from .settings import Settings
 from .storage import Workspace, utcnow
 
@@ -83,6 +85,11 @@ class TrackingOutcome:
     scores: list[dict[str, Any]]
     memory: dict[str, Any]
     cancelled: bool = False
+
+
+def has_positive_seed(prompt: PromptSet) -> bool:
+    """True when a prompt can define an object: a box or a foreground click."""
+    return prompt.box is not None or any(point.positive for point in prompt.points)
 
 
 def frame_source(workspace: Workspace, video_id: str, meta: dict[str, Any]) -> DirectoryFrameSource:
@@ -187,6 +194,12 @@ def run_tracking(
     for prompt in prompts:
         index = min(max(int(prompt.frame_index), 0), frames.n_frames - 1)
         prompts_by_frame[index] = _clamp(prompt, index)
+    # A prompt with no box and no foreground click is a deliberate "background
+    # here" answer. It yields no mask on that frame by design, which must not be
+    # reported to the studio as lost tracking.
+    background_only = sorted(
+        index for index, prompt in prompts_by_frame.items() if not has_positive_seed(prompt)
+    )
 
     steps = build_plan(frames.n_frames, list(prompts_by_frame), bidirectional)
     ctx.note(f"loading {model_key}")
@@ -213,7 +226,14 @@ def run_tracking(
         try:
             check_frame_result(result, frames.shape)
         except ContractError as exc:
-            raise ContractError(f"[{model_key}] frame {frame_index}: {exc}") from exc
+            hint = ""
+            if prompted and frame_index in set(background_only):
+                hint = (
+                    " This frame has background clicks only, and "
+                    f"{model_key} needs a foreground click or a box on every prompted "
+                    "frame: add one on this frame, or remove this frame's prompts."
+                )
+            raise ContractError(f"[{model_key}] frame {frame_index}: {exc}{hint}") from exc
 
         mask_utils.save_mask(masks_dir / f"{frame_index:06d}.png", result.mask)
         scores.append(
@@ -224,7 +244,7 @@ def run_tracking(
                 "prompted": prompted,
             }
         )
-        if not result.object_present:
+        if not result.object_present and frame_index not in background_only:
             absent.append(frame_index)
 
         ctx.progress(
@@ -235,6 +255,12 @@ def run_tracking(
     scores.sort(key=lambda record: record["frame_index"])
     elapsed = time.time() - started
     mean_score = float(np.mean([s["score"] for s in scores])) if scores else 0.0
+    quality = summarize_quality(
+        scores,
+        n_frames=frames.n_frames,
+        prompt_frames=list(prompts_by_frame),
+        background_only_frames=background_only,
+    )
 
     try:
         memory = tracker.memory_state() or {}
@@ -270,6 +296,10 @@ def run_tracking(
         "checkpoint": checkpoint,
         "bidirectional": bidirectional,
         "status": "succeeded",
+        # Self-describing sessions: the exact prompts that produced these masks, so
+        # a reload can restore them and a later run cannot silently drop them.
+        "prompts": [prompt_set_to_dict(prompts_by_frame[index]) for index in sorted(prompts_by_frame)],
+        "quality": quality,
     }
     ctx.check_cancelled()
     workspace.write_session_meta(video_id, session_id, session_meta)
@@ -285,4 +315,5 @@ def run_tracking(
         "absent_frames": outcome.absent_frames,
         "elapsed_s": round(outcome.elapsed_s, 2),
         "memory": outcome.memory,
+        "quality": quality,
     }

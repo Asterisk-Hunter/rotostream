@@ -202,6 +202,8 @@ class ExportInputs:
     width: int
     height: int
     out_path: Path
+    #: Original upload, used to carry the source audio into video exports.
+    audio_source: Path | None = None
 
     def frame(self, index: int) -> np.ndarray:
         path = self.frames_dir / f"{index:06d}.jpg"
@@ -215,19 +217,35 @@ class ExportInputs:
 
 
 def _encode_png_sequence(
-    tmp_dir: Path, fps: float, out_path: Path, encoder_args: Sequence[Any]
+    tmp_dir: Path, fps: float, out_path: Path, encoder_args: Sequence[Any],
+    audio_source: Path | None = None,
 ) -> None:
+    """Encode a PNG sequence, optionally muxing the source clip's audio back in.
+
+    The exports share the source timeline exactly (same frame count, same rate), so
+    copying the original audio is faithful rather than approximate. Dropping it
+    would make an "edited MP4" of a clip with sound silently unedited-sounding, so
+    the audio codec follows the container: AAC in MP4, Opus in WebM.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    _run(
-        [
-            "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
-            "-framerate", f"{max(fps, 1.0):.6f}",
-            "-i", tmp_dir / "%06d.png",
-            *encoder_args,
-            "-movflags", "+faststart",
-            out_path,
+    command: list[Any] = [
+        "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+        "-framerate", f"{max(fps, 1.0):.6f}",
+        "-i", tmp_dir / "%06d.png",
+    ]
+    if audio_source is not None:
+        command += ["-i", audio_source]
+    command += [*encoder_args]
+    if audio_source is not None:
+        codec = "libopus" if out_path.suffix.lower() == ".webm" else "aac"
+        command += [
+            "-map", "0:v:0", "-map", "1:a:0?",
+            "-c:a", codec, "-b:a", "160k", "-shortest",
         ]
-    )
+    if out_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
+        command += ["-movflags", "+faststart"]
+    command.append(out_path)
+    _run(command)
 
 
 def _tint(frame: np.ndarray, mask: np.ndarray, alpha: float = 0.45) -> np.ndarray:
@@ -270,6 +288,7 @@ def export_alpha_webm(inp: ExportInputs, progress: Progress) -> Path:
             tmp, inp.fps, inp.out_path,
             ["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "32",
              "-auto-alt-ref", "0", "-row-mt", "1", "-cpu-used", "4"],
+            audio_source=inp.audio_source,
         )
         progress(1.0, f"wrote {inp.out_path.name}")
     finally:
@@ -290,6 +309,7 @@ def export_overlay_mp4(inp: ExportInputs, progress: Progress) -> Path:
         _encode_png_sequence(
             tmp, inp.fps, inp.out_path,
             ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
+            audio_source=inp.audio_source,
         )
         progress(1.0, f"wrote {inp.out_path.name}")
     finally:
@@ -313,6 +333,7 @@ def export_replace_bg(inp: ExportInputs, progress: Progress, *, background: str 
         _encode_png_sequence(
             tmp, inp.fps, inp.out_path,
             ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
+            audio_source=inp.audio_source,
         )
         progress(1.0, f"wrote {inp.out_path.name}")
     finally:
@@ -388,6 +409,148 @@ EXPORT_SUFFIX: dict[str, str] = {
     "mask_rle_json": ".json",
     "replace_bg": ".mp4",
 }
+
+#: Human-facing description of every deliverable. The studio renders these, so a
+#: user reads the same sentence before and after rendering.
+EXPORT_SPEC: dict[str, dict[str, Any]] = {
+    "alpha_webm": {
+        "label": "Transparent cutout (WebM)",
+        "container": "WebM",
+        "video_codec": "VP9 with an alpha channel",
+        "keeps": "subject only, background transparent",
+    },
+    "overlay_mp4": {
+        "label": "Mask check (MP4)",
+        "container": "MP4",
+        "video_codec": "H.264",
+        "keeps": "original footage with the tracked mask tinted on top",
+    },
+    "replace_bg": {
+        "label": "Edited clip (MP4)",
+        "container": "MP4",
+        "video_codec": "H.264",
+        "keeps": "subject only, background replaced",
+    },
+    "cutout_zip": {
+        "label": "RGBA PNG sequence (ZIP)",
+        "container": "ZIP of PNGs",
+        "video_codec": "",
+        "keeps": "subject only, one RGBA PNG per frame",
+    },
+    "mask_zip": {
+        "label": "Mask PNG sequence (ZIP)",
+        "container": "ZIP of PNGs",
+        "video_codec": "",
+        "keeps": "binary masks (0 or 255), one per frame",
+    },
+    "mask_rle_json": {
+        "label": "Mask RLE (JSON)",
+        "container": "JSON",
+        "video_codec": "",
+        "keeps": "COCO-style run-length masks, one record per frame",
+    },
+}
+
+
+def build_manifest(
+    kind: str,
+    *,
+    n_frames: int,
+    fps: float,
+    width: int,
+    height: int,
+    source_width: int = 0,
+    source_height: int = 0,
+    has_audio: bool = False,
+    audio_preserved: bool = False,
+    options: dict[str, Any] | None = None,
+    quality: dict[str, Any] | None = None,
+    session_id: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Describe exactly what an export file will contain.
+
+    Stored on the export record and rendered by the studio, so the promise made
+    before rendering and the artifact that arrives afterwards cannot disagree.
+    """
+    if kind not in EXPORT_SPEC:
+        raise ValueError(f"unknown export kind {kind!r}")
+    spec = EXPORT_SPEC[kind]
+    options = dict(options or {})
+    quality = dict(quality or {})
+    duration = n_frames / fps if fps else 0.0
+    is_media = kind in {"alpha_webm", "overlay_mp4", "replace_bg"}
+    visual = kind in {"alpha_webm", "overlay_mp4", "replace_bg", "cutout_zip"}
+
+    notes: list[str] = [
+        f"{n_frames:,} frames at {width}×{height}, {fps:.3g} fps ({duration:.2f}s).",
+    ]
+    if width and height and (source_width, source_height) not in {(0, 0), (width, height)}:
+        notes.append(
+            f"Rendered at the working resolution ({width}×{height}); the upload was "
+            f"{source_width}×{source_height}, so it is not an original-resolution master."
+        )
+    if is_media:
+        notes.append(f"Audio: {'copied from the source clip' if audio_preserved else 'none'}.")
+        if kind == "alpha_webm":
+            notes.append(
+                "Some desktop players ignore WebM alpha; import it into an editor to see the cutout."
+            )
+    elif kind == "cutout_zip":
+        notes.append("Alpha channel only: no audio.")
+    else:
+        notes.append("Masks only: no video and no audio.")
+    if kind == "replace_bg":
+        background = str(options.get("background", "blur"))
+        radius = options.get("blur_radius")
+        detail = {
+            "blur": f"blurred (Gaussian radius {radius})",
+            "black": "solid black",
+            "white": "solid white",
+            "green": "solid green (#00B140)",
+        }.get(background, background)
+        notes.append(f"Background: {detail}; the subject keeps the original pixels.")
+    if quality and quality.get("n_frames"):
+        absent = len(quality.get("absent_frames") or [])
+        low = len(quality.get("low_confidence_frames") or [])
+        notes.append(
+            f"Mask source: session {session_id or 'latest'} ({model or 'unknown tracker'}) — "
+            f"{quality.get('n_masked', 0)} of {quality.get('n_frames', n_frames)} frames have a mask, "
+            f"{absent} without one and {low} below the confidence threshold."
+        )
+        if absent:
+            notes.append(
+                f"Frames with no mask show the {'background' if visual else 'mask'} as empty; "
+                "review them in the timeline before delivering this file."
+            )
+        elif low:
+            plural = "frame" if low == 1 else "frames"
+            notes.append(
+                f"{low} {plural} below the confidence threshold; "
+                "check them in the timeline before delivering this file."
+            )
+
+    return {
+        "kind": kind,
+        "label": spec["label"],
+        "container": spec["container"],
+        "video_codec": spec["video_codec"],
+        "keeps": spec["keeps"],
+        "width": width,
+        "height": height,
+        "source_width": source_width,
+        "source_height": source_height,
+        "fps": round(float(fps), 6),
+        "n_frames": int(n_frames),
+        "duration_s": round(float(duration), 3),
+        "has_audio": bool(has_audio),
+        "audio_preserved": bool(audio_preserved),
+        "alpha": kind in {"alpha_webm", "cutout_zip"},
+        "options": options,
+        "session_id": session_id,
+        "model": model,
+        "notes": notes,
+    }
 
 
 def run_export(kind: str, inp: ExportInputs, progress: Progress, **options: Any) -> Path:

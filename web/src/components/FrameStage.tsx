@@ -2,12 +2,14 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { frameBox, frameCoordinates } from "@/lib/coordinates";
 import { formatTimecode } from "@/lib/format";
 import type { BoxPrompt, PointPrompt } from "@/lib/types";
-import { frameBox, frameCoordinates } from "@/lib/coordinates";
 
-import { CursorIcon } from "./icons";
-import { Button, Spinner, cx } from "./ui";
+import { Button, cx } from "./ui";
+
+/** Fixed overlay strength: strong enough to judge the outline, light enough to see pixels. */
+const MASK_OPACITY = 0.72;
 
 interface Props {
   frameUrl: string;
@@ -21,12 +23,15 @@ interface Props {
   box: BoxPrompt | null;
   busy?: boolean;
   disabled?: boolean;
+  /** What the overlay on screen is: the tracked mask, or your clicks so far. */
   hint?: string;
   onAddPoint: (point: PointPrompt) => void;
   onAddBox: (box: BoxPrompt) => void;
   onRemovePoint: (index: number) => void;
   onRemoveBox: () => void;
 }
+
+type Tool = "object" | "exclude" | "box";
 
 /**
  * Click coordinates are converted from rendered pixels back to source-frame pixels,
@@ -51,13 +56,11 @@ export function FrameStage({
   onRemoveBox,
 }: Props) {
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const [foreground, setForeground] = useState(true);
-  const [tool, setTool] = useState<"point" | "box">("point");
+  const [tool, setTool] = useState<Tool>("object");
   const [dragBox, setDragBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
   const [keyboardPoint, setKeyboardPoint] = useState({ x: 0.5, y: 0.5 });
   const [focused, setFocused] = useState(false);
   const [showMask, setShowMask] = useState(true);
-  const [maskOpacity, setMaskOpacity] = useState(78);
 
   const toFrameCoords = useCallback(
     (clientX: number, clientY: number) => {
@@ -76,9 +79,22 @@ export function FrameStage({
     height: `${(Math.abs(selection.y1 - selection.y0) / height) * 100}%`,
   });
 
+  const tools: Array<{ key: Tool; label: string; title: string }> = [
+    { key: "object", label: "Object", title: "Click the object to keep it (foreground)" },
+    { key: "exclude", label: "Exclude", title: "Click a region to remove it from the mask (background)" },
+    { key: "box", label: "Box", title: "Drag a tight box around the object" },
+  ];
+
+  const instruction =
+    tool === "box"
+      ? "Drag a tight box around the object you want to keep."
+      : tool === "exclude"
+        ? "Click what the mask wrongly includes."
+        : hint ?? "Click the object you want to track.";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative order-2 flex min-h-0 flex-1 items-center justify-center overflow-hidden p-5 viewer-surface">
+      <div className="viewer-surface relative order-2 flex min-h-0 flex-1 items-center justify-center overflow-hidden p-5">
         <div
           className="relative h-full max-h-full w-auto max-w-full overflow-hidden rounded-[4px] shadow-[0_18px_48px_rgba(0,0,0,0.48)]"
           style={{ aspectRatio: `${width} / ${height}` }}
@@ -100,7 +116,7 @@ export function FrameStage({
               alt=""
               draggable={false}
               className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-              style={{ opacity: maskOpacity / 100 }}
+              style={{ opacity: MASK_OPACITY }}
             />
           )}
 
@@ -110,7 +126,7 @@ export function FrameStage({
               key={`${point.x}-${point.y}-${index}`}
               disabled={disabled}
               aria-label={`Remove ${point.positive ? "object" : "background"} prompt ${index + 1}`}
-              title="Remove prompt"
+              title="Remove this click"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => { event.stopPropagation(); onRemovePoint(index); }}
               className={cx(
@@ -138,7 +154,9 @@ export function FrameStage({
                 onClick={(event) => { event.stopPropagation(); onRemoveBox(); }}
                 className="absolute z-30 -translate-y-full rounded bg-ink-950 px-1.5 py-0.5 text-[10px] text-ink-100 shadow"
                 style={{ left: `${(Math.min(box.x0, box.x1) / width) * 100}%`, top: `${(Math.min(box.y0, box.y1) / height) * 100}%` }}
-              >×</button>
+              >
+                ×
+              </button>
             </>
           )}
 
@@ -155,7 +173,11 @@ export function FrameStage({
             role="button"
             tabIndex={disabled ? -1 : 0}
             aria-disabled={disabled}
-            aria-label={tool === "box" ? "Draw a box around the object on this frame." : "Prompt object on frame. Arrow keys move the cursor; Enter marks the object; Shift Enter excludes background."}
+            aria-label={
+              tool === "box"
+                ? "Draw a box around the object on this frame."
+                : "Prompt the object on this frame. Arrow keys move the cursor, Enter marks the object, Shift Enter excludes background."
+            }
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={(event) => {
@@ -176,7 +198,7 @@ export function FrameStage({
                 onAddPoint({
                   x: Math.min(width - 1, Math.round(keyboardPoint.x * width)),
                   y: Math.min(height - 1, Math.round(keyboardPoint.y * height)),
-                  positive: foreground && !event.shiftKey && !event.altKey,
+                  positive: tool === "object" && !event.shiftKey,
                 });
               }
             }}
@@ -191,9 +213,8 @@ export function FrameStage({
                 setDragBox({ start: coords, end: coords });
                 return;
               }
-              // Left click adds foreground; right click, alt or shift adds background.
-              const positive =
-                foreground && event.button === 0 && !event.altKey && !event.shiftKey && !event.metaKey;
+              // Left click follows the selected tool; right click always excludes.
+              const positive = tool === "object" && event.button === 0 && !event.altKey && !event.shiftKey;
               onAddPoint({ ...coords, positive });
             }}
             onPointerMove={(event) => {
@@ -219,51 +240,67 @@ export function FrameStage({
             }}
             className={cx(
               "absolute inset-0 z-10",
-              disabled ? "cursor-default" : "cursor-crosshair",
+              disabled ? "cursor-default" : tool === "box" ? "cursor-crosshair" : "cursor-cell",
             )}
           />
-          {focused && !disabled && <span aria-hidden="true" className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent-300 bg-accent-500/20" style={{ left: `${keyboardPoint.x * 100}%`, top: `${keyboardPoint.y * 100}%` }} />}
+          {focused && !disabled && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent-300 bg-accent-500/20"
+              style={{ left: `${keyboardPoint.x * 100}%`, top: `${keyboardPoint.y * 100}%` }}
+            />
+          )}
         </div>
 
-        {!overlayUrl && !busy && !disabled && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
-            <span className="flex items-center gap-1.5 rounded-full border border-ink-700/80 bg-ink-950/88 px-3 py-1.5 text-[11px] text-ink-200 shadow-lg backdrop-blur">
-              <CursorIcon className="h-3 w-3 text-accent-400" />
-              {tool === "box" ? "Drag a tight box around the object" : hint ?? "Click the object to prompt it"}
-            </span>
-          </div>
-        )}
-
         {busy && (
-          <div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/90 px-2.5 py-1 text-[11px] text-ink-300 backdrop-blur">
-            <Spinner />
-            segmenting
-          </div>
+          <span
+            role="status"
+            className="pointer-events-none absolute right-4 top-3 font-mono text-[11px] text-accent-300"
+          >
+            segmenting…
+          </span>
         )}
+      </div>
+
+      <div className="order-1 mb-2 flex flex-wrap items-center gap-2 border-b border-ink-800 pb-2">
+        <div role="group" aria-label="Prompt tool" className="flex items-center gap-1">
+          {tools.map((entry) => (
+            <Button
+              key={entry.key}
+              variant={tool === entry.key ? "primary" : "ghost"}
+              disabled={disabled}
+              aria-pressed={tool === entry.key}
+              title={entry.title}
+              onClick={() => setTool(entry.key)}
+              className="px-2.5 py-1.5 text-xs"
+            >
+              {entry.label}
+            </Button>
+          ))}
+        </div>
+        <p className="min-w-0 flex-1 truncate px-1 text-[11px] text-ink-400">{instruction}</p>
+        <Button
+          variant="ghost"
+          disabled={!overlayUrl}
+          aria-pressed={showMask}
+          title="Show or hide the mask overlay"
+          onClick={() => setShowMask((visible) => !visible)}
+          className="px-2.5 py-1.5 text-xs"
+        >
+          {showMask ? "Mask on" : "Mask off"}
+        </Button>
       </div>
 
       <div className="order-3 mt-2 flex flex-wrap items-center justify-between gap-3 px-0.5">
-        <div className="flex items-center gap-2">
-          <span className="font-sans text-xs text-ink-300">Frame</span>
+        <span className="flex items-center gap-2">
+          <span className="text-xs text-ink-300">Frame</span>
           <span className="tnum font-mono text-xs text-ink-100">
             {frameIndex + 1} <span className="text-ink-500">/ {nFrames}</span>
           </span>
-          <span className="tnum font-mono text-xs text-ink-400">
-            {formatTimecode(frameIndex, fps)}
-          </span>
-        </div>
-        <span className="tnum font-mono text-[11px] text-ink-500">
-          {width} × {height} · {fps.toFixed(2)} fps
+          <span className="tnum font-mono text-xs text-ink-400">{formatTimecode(frameIndex, fps)}</span>
         </span>
-      </div>
-      <div className="order-1 mb-2 flex flex-wrap items-center gap-1 border-b border-ink-800 pb-2">
-        <Button variant={tool === "point" && foreground ? "primary" : "ghost"} disabled={disabled} aria-pressed={tool === "point" && foreground} onClick={() => { setTool("point"); setForeground(true); }}>Object point</Button>
-        <Button variant={tool === "box" ? "primary" : "ghost"} disabled={disabled} aria-pressed={tool === "box"} onClick={() => { setTool("box"); setForeground(true); }}>Draw box</Button>
-        <Button variant={tool === "point" && !foreground ? "primary" : "ghost"} disabled={disabled} aria-pressed={tool === "point" && !foreground} onClick={() => { setTool("point"); setForeground(false); }}>Exclude</Button>
-        <span className="ml-auto flex items-center gap-3">
-          <button type="button" aria-pressed={showMask} onClick={() => setShowMask((visible) => !visible)} className="rounded-sm px-2 py-2 text-xs text-ink-300 hover:bg-ink-800" title="Toggle mask overlay">{showMask ? "Mask on" : "Mask off"}</button>
-          <label className="hidden items-center gap-2 text-[11px] text-ink-400 sm:flex">Opacity<input type="range" min="10" max="100" value={maskOpacity} aria-label="Mask opacity" onChange={(event) => setMaskOpacity(Number(event.target.value))} className="w-16 accent-[var(--color-accent-400)]" /></label>
-          <span className="hidden text-[11px] text-ink-500 md:inline">← → frame</span>
+        <span className="tnum font-mono text-[11px] text-ink-500">
+          {width} × {height} · {fps.toFixed(2)} fps · ← → frame
         </span>
       </div>
     </div>

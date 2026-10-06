@@ -4,7 +4,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .quality import session_quality
 
 
 # --------------------------------------------------------------------- enums
@@ -108,6 +110,7 @@ class ModelInfoOut(BaseModel):
     checkpoint_hint: str = ""
     error: str = ""
     is_default: bool = False
+    accepts_background_only_prompts: bool = False
 
 
 class VideoOut(BaseModel):
@@ -142,6 +145,15 @@ class FrameScoreOut(BaseModel):
     prompted: bool = False
 
 
+class PromptOut(BaseModel):
+    """A stored prompt, so a session can describe how its masks were produced."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
+    frame_index: int
+    points: list[PointIn] = Field(default_factory=list)
+    box: BoxIn | None = None
+
+
 class SessionOut(BaseModel):
     id: str
     video_id: str
@@ -158,6 +170,31 @@ class SessionOut(BaseModel):
     error: str | None = None
     scores: list[FrameScoreOut] = Field(default_factory=list)
     memory: dict[str, Any] = Field(default_factory=dict)
+    #: The prompts this run was built from. Restoring them keeps a later run from
+    #: silently dropping a correction the user already made.
+    prompts: list[PromptOut] = Field(default_factory=list)
+    #: Review summary: mask coverage plus the frames that need attention.
+    quality: dict[str, Any] = Field(default_factory=dict)
+    low_confidence_frames: list[int] = Field(default_factory=list)
+    background_only_frames: list[int] = Field(default_factory=list)
+    coverage: float = 0.0
+    sound: bool = False
+
+    @model_validator(mode="after")
+    def _describe_the_review_state(self) -> SessionOut:
+        """Report the run's real coverage instead of the schema's defaults.
+
+        Stored sessions do not carry the flat review fields, so without this every
+        session would serialize as coverage 100% and sound. Old sessions are derived
+        from their own scores, so a clip the tracker lost half of still says so.
+        """
+        summary = session_quality(self.model_dump())
+        self.quality = summary
+        self.low_confidence_frames = summary["low_confidence_frames"]
+        self.background_only_frames = summary["background_only_frames"]
+        self.coverage = summary["coverage"]
+        self.sound = summary["sound"]
+        return self
 
 
 class JobOut(BaseModel):
@@ -183,6 +220,9 @@ class ExportOut(BaseModel):
     size_bytes: int = 0
     download_url: str = ""
     error: str | None = None
+    #: Exactly what the artifact contains: container, codecs, resolution, fps,
+    #: frame count, whether the source audio survived and how the mask was used.
+    manifest: dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthOut(BaseModel):

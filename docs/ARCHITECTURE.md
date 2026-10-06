@@ -17,12 +17,18 @@ gateway authenticates UI, API, media and SSE under one origin.
    prompt/propagation plan. Save each mask with confidence and presence metadata.
    Only completed runs publish success; failure and cancellation are durable.
 5. Inspection retrieves frames, overlays, confidence and memory diagnostics for
-   the chosen session. Later sessions cannot rewrite earlier masks.
+   the chosen session, plus a review summary that keeps missing frames, weak frames
+   and frames the user marked as background apart. Sessions written before that
+   summary existed are derived from their own scores, so an old run cannot report
+   full coverage it never had. Later sessions cannot rewrite earlier masks.
 6. Export requires a successful session and publishes a contained artifact after
-   completion. Partial files are removed on failure; active deletion returns a conflict.
+   completion, together with a manifest of container, dimensions, audio and the mask
+   coverage the file was built from. Partial files are removed on failure; active
+   deletion returns a conflict.
 
 Schemas live in `api/app/schemas.py`, routes in `routers/`, planning in
-`pipeline.py`, storage in `storage.py`, and encoding in `video.py`.
+`pipeline.py`, review rules in `quality.py`, storage in `storage.py`, and encoding
+in `video.py`.
 
 ## Compute and consistency
 

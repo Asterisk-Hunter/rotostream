@@ -198,6 +198,10 @@ class TrackerInfo:
     checkpoint_hint: str = ""
     #: Populated by the registry when a plugin could not be imported at all.
     error: str = ""
+    #: True when a prompt containing only background clicks is a valid instruction
+    #: ("there is no object on this frame") rather than a contract violation. The
+    #: studio uses it to warn before a run instead of failing inside the worker.
+    accepts_background_only_prompts: bool = False
 
 
 def resolve_device(requested: str = "auto") -> str:

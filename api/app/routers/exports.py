@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import mimetypes
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from ..jobs import JobCancelled, get_job_manager
+from ..quality import session_quality
 from ..schemas import ExportOut, ExportRequest, JobOut
-from ..storage import get_workspace, new_id, utcnow
-from ..video import EXPORT_SUFFIX, ExportInputs, run_export
+from ..storage import Workspace, get_workspace, new_id, utcnow
+from ..video import EXPORT_SUFFIX, ExportInputs, build_manifest, run_export
 from .videos import require_ready_video
 
 router = APIRouter(prefix="/api", tags=["exports"])
@@ -23,6 +25,45 @@ def _to_export_out(meta: dict) -> ExportOut:
             f"/api/videos/{meta['video_id']}/exports/{meta['id']}/download"
         )
     return meta_obj
+
+
+def _audio_source(workspace: Workspace, video_id: str, meta: dict) -> Path | None:
+    """The untouched upload, but only when the export can legitimately mux its audio."""
+    if not meta.get("has_audio"):
+        return None
+    return workspace.source_path(video_id)
+
+
+def _manifest_for(
+    workspace: Workspace,
+    *,
+    video_id: str,
+    session_id: str,
+    kind: str,
+    options: dict,
+) -> dict:
+    """Describe the artifact from the same facts the renderer will use."""
+    meta = workspace.read_meta(video_id)
+    try:
+        session = workspace.read_session_meta(video_id, session_id)
+    except FileNotFoundError:  # pragma: no cover - guarded by the caller
+        session = {}
+    quality = session_quality(session)
+    return build_manifest(
+        kind,
+        n_frames=int(meta.get("n_frames") or 0),
+        fps=float(meta.get("fps") or 30.0),
+        width=int(meta.get("frame_width") or 0),
+        height=int(meta.get("frame_height") or 0),
+        source_width=int(meta.get("width") or 0),
+        source_height=int(meta.get("height") or 0),
+        has_audio=bool(meta.get("has_audio")),
+        audio_preserved=_audio_source(workspace, video_id, meta) is not None,
+        options=options,
+        quality=quality,
+        session_id=session_id,
+        model=session.get("model"),
+    )
 
 
 def _export_body(ctx, *, video_id: str, export_id: str, kind: str,
@@ -42,6 +83,7 @@ def _export_body(ctx, *, video_id: str, export_id: str, kind: str,
             width=int(meta.get("frame_width") or 0),
             height=int(meta.get("frame_height") or 0),
             out_path=workspace.export_file_path(video_id, export_id, EXPORT_SUFFIX[kind]),
+            audio_source=_audio_source(workspace, video_id, meta),
         )
         def progress(fraction, message=""):
             ctx.check_cancelled()
@@ -49,9 +91,12 @@ def _export_body(ctx, *, video_id: str, export_id: str, kind: str,
         path = run_export(kind, inputs, progress, **options)
         ctx.check_cancelled()
         size = path.stat().st_size
+        manifest = _manifest_for(
+            workspace, video_id=video_id, session_id=session_id, kind=kind, options=options,
+        )
         workspace.update_export_meta(
             video_id, export_id, status="succeeded",
-            filename=path.name, size_bytes=size, completed_at=utcnow(),
+            filename=path.name, size_bytes=size, completed_at=utcnow(), manifest=manifest,
         )
         return {
             "export_id": export_id,
@@ -59,6 +104,7 @@ def _export_body(ctx, *, video_id: str, export_id: str, kind: str,
             "filename": path.name,
             "size_bytes": size,
             "download_url": f"/api/videos/{video_id}/exports/{export_id}/download",
+            "manifest": manifest,
         }
     except Exception as exc:  # noqa: BLE001 - record the reason, then let the job fail
         workspace.export_file_path(video_id, export_id, EXPORT_SUFFIX[kind]).unlink(missing_ok=True)
@@ -109,6 +155,10 @@ def create_export(video_id: str, payload: ExportRequest) -> JobOut:
                     "error": None,
                     "options": options,
                     "job_id": job.id,
+                    "manifest": _manifest_for(
+                        workspace, video_id=video_id, session_id=session_id,
+                        kind=payload.kind, options=options,
+                    ),
                 },
             )
 

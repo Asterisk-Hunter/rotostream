@@ -7,7 +7,7 @@ import { formatBytes, formatDuration, formatFrames } from "@/lib/format";
 import type { Video } from "@/lib/types";
 
 import { FilmIcon, TrashIcon, UploadIcon } from "./icons";
-import { Badge, Button, EmptyState, Meter, Spinner, cx } from "./ui";
+import { Button, EmptyState, Meter, Spinner, cx } from "./ui";
 
 export interface UploadState {
   active: boolean;
@@ -24,13 +24,6 @@ interface Props {
   onUpload: (file: File) => void;
   onDelete: (videoId: string) => void;
 }
-
-const STATUS_TONE = {
-  ready: "accent",
-  extracting: "warn",
-  uploaded: "neutral",
-  failed: "negative",
-} as const;
 
 export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, onDelete }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,7 +51,7 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
       />
 
       <div className="flex items-center justify-between px-1">
-        <span className="text-[13px] font-semibold text-ink-100">Project clips</span>
+        <span className="text-[13px] font-semibold text-ink-100">Clips</span>
         <span className="font-mono text-[11px] text-ink-400">{videos.length}</span>
       </div>
 
@@ -102,7 +95,7 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
       )}
 
       {upload.error && (
-        <p className="rounded-md border border-negative/30 bg-negative/10 px-2.5 py-2 text-[11px] text-negative">
+        <p role="alert" className="rounded-[5px] border border-negative/30 bg-negative/10 px-2.5 py-2 text-xs text-negative">
           {upload.error}
         </p>
       )}
@@ -155,23 +148,15 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
 
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium text-ink-100">{video.filename}</span>
-                  <span className="mt-0.5 flex items-center gap-1.5">
-                    <Badge tone={STATUS_TONE[video.status]}>{video.status}</Badge>
-                    {video.status === "ready" && (
-                      <span className="tnum font-mono text-[10px] text-ink-400">
-                        {video.frame_width}×{video.frame_height}
-                      </span>
-                    )}
-                  </span>
-                  {video.status === "ready" && (
+                  {video.status === "ready" ? (
                     <span className="mt-1 block tnum font-mono text-[10px] text-ink-400">
-                      {formatFrames(video.n_frames)} · {video.fps.toFixed(2)}fps ·{" "}
-                      {formatDuration(video.duration_s)} · {formatBytes(video.size_bytes)}
+                      {formatFrames(video.n_frames)} · {video.fps.toFixed(2)} fps ·{" "}
+                      {formatDuration(video.duration_s)} · {video.frame_width}×{video.frame_height} ·{" "}
+                      {formatBytes(video.size_bytes)}
                     </span>
-                  )}
-                  {video.status === "failed" && video.error && (
-                    <span className="mt-1 block truncate text-[10px] text-negative">
-                      {video.error}
+                  ) : (
+                    <span className="mt-1 block text-[11px] text-ink-400">
+                      {video.status === "failed" ? video.error ?? "processing failed" : `${video.status}…`}
                     </span>
                   )}
                 </span>

@@ -41,7 +41,11 @@ checks. Synthetic clips are regression tests and are kept out of capability clai
 - Upload common video formats with real progress and bounded frame extraction.
 - Mark foreground/background with clicks, touch or keyboard input; add corrections
   on later frames and propagate in either direction.
-- Inspect masks, per-frame confidence, object absence and the memory bank.
+- Inspect masks, per-frame confidence, object absence and the memory bank. Frames
+  with no mask, weak frames and frames you marked as background are listed and
+  jumpable, and the studio never calls a run finished while any of them remain.
+- See what a deliverable will be before rendering it: every export records the
+  container, dimensions, audio and the mask coverage it was built from.
 - Keep immutable tracking sessions so a new run cannot change an existing export.
 - Export transparent WebM, mask overlay MP4, replaced background MP4, RGBA PNG
   sequence, mask PNG sequence, or COCO-style RLE JSON.

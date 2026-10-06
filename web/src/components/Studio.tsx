@@ -11,6 +11,7 @@ import { AlertIcon, FilmIcon } from "@/components/icons";
 import { Button, EmptyState, Spinner, StatusDot } from "@/components/ui";
 import { useJob } from "@/hooks/useJob";
 import { ApiError, api, assetUrl } from "@/lib/api";
+import { nextProblemFrame, promptSignature as promptSetSignature, reviewSummary } from "@/lib/review";
 import {
   type BackgroundMode,
   type BoxPrompt,
@@ -88,6 +89,7 @@ export function Studio() {
   const promptUndo = useRef<Prompt[][]>([]);
   const [undoCount, setUndoCount] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [restoredPrompts, setRestoredPrompts] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewRequestKey, setPreviewRequestKey] = useState<string | null>(null);
@@ -187,6 +189,16 @@ export function Studio() {
         if (cancelled) return;
         setClip(next);
         setVideos((list) => list.map((entry) => entry.id === next.id ? next.video : entry));
+        // A saved session carries the prompts that produced its masks. Restoring
+        // them means a reload, or a second tracking run, cannot silently drop a
+        // correction the user already made.
+        if (next.session?.prompts?.length && promptDrafts.current[next.id] === undefined) {
+          promptDrafts.current[next.id] = next.session.prompts;
+          if (selectedIdRef.current === next.id) {
+            setPrompts(next.session.prompts);
+            setRestoredPrompts(true);
+          }
+        }
         // Extraction may have started before a reload, without a known job ID.
         if (next.video.status === "uploaded" || next.video.status === "extracting") {
           timer = setTimeout(() => void load(), 1000);
@@ -254,10 +266,17 @@ export function Studio() {
 
   // ------------------------------------------------------------ derived state
   const video = clip && clip.id === selectedId ? clip.video : null;
-  const session = clip && clip.id === selectedId ? clip.session : null;
+  const storedSession = clip && clip.id === selectedId ? clip.session : null;
+  // Only a successful run has masks to show, review or export; a cancelled one
+  // would otherwise render an overlay that 409s and enable an export that fails.
+  const session = storedSession && storedSession.status === "succeeded" ? storedSession : null;
   const exportList = clip && clip.id === selectedId ? clip.exports : [];
   const ready = video?.status === "ready";
   const frames = video?.n_frames ?? 0;
+  const summary = useMemo(() => reviewSummary(session), [session]);
+  // Prompts exist in the editor but not yet in the saved session's masks.
+  const promptsDirty =
+    Boolean(session) && promptSetSignature(prompts) !== promptSetSignature(session?.prompts);
 
   const currentPrompt = useMemo(
     () => prompts.find((entry) => entry.frame_index === frameIndex) ?? null,
@@ -319,6 +338,20 @@ export function Studio() {
       clearTimeout(timer);
     };
   }, [previewKey, ready, video, frameIndex, currentPoints, currentBox, model, releasePreview]);
+
+  const jumpToProblem = useCallback(
+    (direction: 1 | -1) => {
+      const target = nextProblemFrame(summary?.problemFrames ?? [], frameIndex, direction);
+      if (target !== null) setFrameIndex(target);
+    },
+    [summary, frameIndex],
+  );
+
+  const focusProblems = useCallback(() => {
+    setWorkflowStep("track");
+    const target = nextProblemFrame(summary?.problemFrames ?? [], frameIndex, 1);
+    if (target !== null) setFrameIndex(target);
+  }, [summary, frameIndex]);
 
   // ----------------------------------------------------------- keyboard nav
   useEffect(() => {
@@ -565,11 +598,14 @@ export function Studio() {
   }, [selectedId]);
 
   // -------------------------------------------------------------- presentation
+  // The live preview only ever covers the frame it was rendered for, so other
+  // frames keep showing the tracked mask while the user corrects one frame.
   const overlayUrl = useMemo(() => {
     if (!video) return null;
-    if (!editing && session) return assetUrl.overlay(video.id, frameIndex, session.id);
-    return freshPreview?.url ?? null;
-  }, [video, editing, session, frameIndex, freshPreview]);
+    if (freshPreview) return freshPreview.url;
+    if (session) return assetUrl.overlay(video.id, frameIndex, session.id);
+    return null;
+  }, [video, session, frameIndex, freshPreview]);
 
   const selectedModel = models.find((entry) => entry.name === model);
   const canTrack = Boolean(ready && selectedModel?.implemented && hasPositiveSeed);
@@ -588,11 +624,10 @@ export function Studio() {
           <span className="hidden h-4 w-px bg-ink-700 sm:block" />
           <div className="min-w-0">
             <p className="truncate text-[13px] font-medium text-ink-200">{video ? video.filename : "Untitled project"}</p>
-            <p className="hidden text-[10px] text-ink-500 sm:block">Rotoscoping workspace</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          {health ? <span className="hidden items-center gap-2 text-[11px] text-ink-400 sm:flex"><StatusDot ok={health.device !== "cpu"} title={`Processing on ${health.device}`} />{health.device}</span> : !bootError && <Spinner />}
+          {!health && !bootError && <Spinner />}
           <button type="button" onClick={async () => { const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }); if (response.ok) { router.replace("/login"); router.refresh(); } }} className="border-l border-ink-700 pl-3 text-xs text-ink-400 transition-colors hover:text-ink-100">Sign out</button>
         </div>
       </header>
@@ -634,11 +669,11 @@ export function Studio() {
                 busy={previewBusy && previewRequestKey === previewKey}
                 disabled={trackSubmitting || trackJob.active || !selectedModel?.implemented}
                 hint={
-                  editing
-                    ? "Left click to add a point, right click to exclude"
+                  currentPoints.length > 0 || currentBox
+                    ? "This overlay is your clicks on this frame, not the tracked mask yet."
                     : session
-                      ? "Showing tracked masks — click to refine"
-                      : "Click the object to prompt it"
+                      ? "Showing the tracked mask — click to correct this frame"
+                      : "Click the object you want to keep."
                 }
                 onAddPoint={addPoint}
                 onAddBox={addBox}
@@ -650,9 +685,11 @@ export function Studio() {
                 index={frameIndex}
                 scores={session?.scores ?? []}
                 promptFrames={editing ? prompts.map((entry) => entry.frame_index) : session?.prompt_frames ?? []}
+                summary={summary}
                 fps={video.fps}
                 videoId={video.id}
                 onIndexChange={setFrameIndex}
+                onJumpProblem={jumpToProblem}
               />
             </>
           ) : (
@@ -704,6 +741,9 @@ export function Studio() {
             onRemoveBox={removeCurrentBox}
             onClearFrame={clearFrame}
             onClearAll={clearAll}
+            model={model}
+            acceptsBackgroundOnlyPrompts={Boolean(selectedModel?.accepts_background_only_prompts)}
+            restored={restoredPrompts}
           />}
           {workflowStep === "track" && <TrackPanel
             models={models}
@@ -720,9 +760,17 @@ export function Studio() {
             onTrack={handleTrack}
             onCancel={handleCancel}
             session={session}
+            summary={summary}
+            promptsDirty={promptsDirty}
+            onReview={focusProblems}
           />}
           {workflowStep === "export" && <ExportPanel
             videoId={video?.id ?? null}
+            video={video}
+            session={session}
+            summary={summary}
+            promptsDirty={promptsDirty}
+            onReview={focusProblems}
             kind={exportKind}
             onKindChange={setExportKind}
             background={background}
