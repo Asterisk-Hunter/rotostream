@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import { assetUrl } from "@/lib/api";
 import { formatScore } from "@/lib/format";
 import type { ReviewSummary } from "@/lib/review";
-import { frameState } from "@/lib/review";
+import { createFrameStateLookup } from "@/lib/review";
 import type { FrameScore } from "@/lib/types";
 
 import { Button, cx } from "./ui";
@@ -41,6 +41,8 @@ const STATE_LABEL = {
   ok: "tracked",
 } as const;
 
+const REVIEW_PREVIEW_HZ = 8;
+
 /**
  * One bar per frame: colour is the review state, height is the tracker's own
  * confidence. Frames that are missing or weak are marked rather than averaged away,
@@ -58,8 +60,19 @@ export function Timeline({
   onJumpProblem,
 }: Props) {
   const [playing, setPlaying] = useState(false);
-  const byFrame = new Map(scores.map((score) => [score.frame_index, score]));
+  const indexRef = useRef(index);
+  useEffect(() => {
+    indexRef.current = index;
+  }, [index]);
   const last = Math.max(0, nFrames - 1);
+  const byFrame = useMemo(
+    () => new Map(scores.map((score) => [score.frame_index, score])),
+    [scores],
+  );
+  const classifyFrame = useMemo(
+    () => createFrameStateLookup(summary, promptFrames),
+    [summary, promptFrames],
+  );
 
   const seekFromEvent = (event: MouseEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -70,39 +83,51 @@ export function Timeline({
 
   const current = byFrame.get(index);
   const problems = summary?.problemFrames ?? [];
-  const problemState = frameState(current, summary, promptFrames, index);
+  const problemState = classifyFrame(current, index);
   const sampleCount = Math.min(160, Math.max(1, nFrames));
-  const bins = Array.from({ length: sampleCount }, () => ({
-    total: 0, present: 0, score: 0, absent: false, low: false, prompt: false, background: false,
-  }));
-  const binOf = (frame: number) => Math.min(sampleCount - 1, Math.floor((frame * sampleCount) / Math.max(1, nFrames)));
-
-  for (const record of scores) {
-    const bin = bins[binOf(record.frame_index)];
-    if (!bin) continue;
-    bin.total++;
-    const state = frameState(record, summary, promptFrames, record.frame_index);
-    if (state === "absent") bin.absent = true;
-    else if (state === "background") bin.background = true;
-    else if (state === "low") bin.low = true;
-    if (state === "prompted") bin.prompt = true;
-    if (record.object_present) {
-      bin.present++;
-      bin.score += record.score;
+  const bins = useMemo(() => {
+    const result = Array.from({ length: sampleCount }, () => ({
+      total: 0, present: 0, score: 0, absent: false, low: false, prompt: false, background: false,
+    }));
+    const binOf = (frame: number) => Math.min(sampleCount - 1, Math.floor((frame * sampleCount) / Math.max(1, nFrames)));
+    for (const record of scores) {
+      const bin = result[binOf(record.frame_index)];
+      if (!bin) continue;
+      bin.total++;
+      const state = classifyFrame(record, record.frame_index);
+      if (state === "absent") bin.absent = true;
+      else if (state === "background") bin.background = true;
+      else if (state === "low") bin.low = true;
+      if (state === "prompted") bin.prompt = true;
+      if (record.object_present) {
+        bin.present++;
+        bin.score += record.score;
+      }
     }
-  }
+    return result;
+  }, [sampleCount, nFrames, scores, classifyFrame]);
 
-  const thumbnails = Array.from({ length: Math.min(10, nFrames) }, (_, slot) =>
-    Math.round((slot * last) / Math.max(1, Math.min(10, nFrames) - 1)),
-  );
+  const thumbnails = useMemo(() =>
+    Array.from({ length: Math.min(10, nFrames) }, (_, slot) =>
+      Math.round((slot * last) / Math.max(1, Math.min(10, nFrames) - 1)),
+    ), [nFrames, last]);
 
   useEffect(() => {
     if (!playing) return;
+    const startedAt = performance.now();
+    const startIndex = indexRef.current;
     const timer = setInterval(() => {
-      onIndexChange(index >= last ? 0 : index + 1);
-    }, 1000 / Math.max(1, fps));
+      const elapsedFrames = Math.floor(((performance.now() - startedAt) * Math.max(1, fps)) / 1000);
+      const nextIndex = startIndex + elapsedFrames;
+      if (nextIndex >= last) {
+        onIndexChange(last);
+        setPlaying(false);
+      } else {
+        onIndexChange(nextIndex);
+      }
+    }, 1000 / REVIEW_PREVIEW_HZ);
     return () => clearInterval(timer);
-  }, [playing, index, last, fps, onIndexChange]);
+  }, [playing, last, fps, onIndexChange]);
 
   const absentCount = summary?.absentFrames.length ?? 0;
   const lowCount = summary?.lowConfidenceFrames.length ?? 0;
@@ -201,11 +226,11 @@ export function Timeline({
           variant="secondary"
           className="px-2.5 py-1.5 text-[11px]"
           onClick={() => setPlaying((value) => !value)}
-          aria-label={playing ? "Pause clip" : "Play clip"}
+          aria-label={playing ? "Pause review preview" : "Play sampled review preview"}
           aria-pressed={playing}
           disabled={nFrames <= 1}
         >
-          {playing ? "Pause" : "Play"}
+          {playing ? "Pause" : "Play preview"}
         </Button>
         <Button
           variant="ghost"
@@ -236,6 +261,7 @@ export function Timeline({
       </div>
 
       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-ink-500">
+        <span>Preview samples at up to {REVIEW_PREVIEW_HZ} frames/s</span>
         <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-[2px] bg-accent-400" /> prompted
         </span>

@@ -6,7 +6,7 @@ const plexSans = IBM_Plex_Sans({ subsets: ["latin"], variable: "--font-plex-sans
 const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: "400", variable: "--font-plex-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "RotoStream — AI rotoscoping studio",
+  title: "RotoStream — video rotoscoping workspace",
   description:
     "Click an object once and propagate a temporally consistent mask across the video, then export an alpha matte, a transparent video or a replaced background.",
 };

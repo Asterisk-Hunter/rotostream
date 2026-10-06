@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createFrameStateLookup,
   frameState,
   nextProblemFrame,
   promptSignature,
@@ -130,6 +131,22 @@ test("frame states separate absent, low, prompt, background and untracked frames
   assert.equal(frameState(score(2, 0.0, false), summary, [0], 2), "absent");
   assert.equal(frameState(score(3, 0.0, false, true), summary, [0], 3), "background");
   assert.equal(frameState(score(0, 0.9, true, true), summary, [0], 0), "prompted");
+});
+
+test("cached frame classification matches the review rules without scanning arrays per frame", () => {
+  const summary = summarizeScores(
+    [score(0, 0.9), score(1, 0.2), score(2, 0.0, false)],
+    5,
+    [promptAt(0), promptAt(3, false)],
+  );
+  const prompts = [0, 1, 4];
+  const classify = createFrameStateLookup(summary, prompts);
+  for (let index = 0; index < 6; index++) {
+    const record = summary.nFrames > index
+      ? [score(0, 0.9), score(1, 0.2), score(2, 0.0, false)][index]
+      : undefined;
+    assert.equal(classify(record, index), frameState(record, summary, prompts, index));
+  }
 });
 
 test("prompt signatures detect a changed prompt set", () => {

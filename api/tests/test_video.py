@@ -1,6 +1,8 @@
 """ffmpeg helpers, mask IO/RLE and every export kind."""
 from __future__ import annotations
 
+import subprocess
+
 import numpy as np
 import pytest
 
@@ -153,6 +155,30 @@ def test_every_export_kind_produces_an_artifact(tmp_path, sample_video, kind):
     assert out_path.exists() and out_path.stat().st_size > 0
     assert progress and max(progress) >= 0.9, f"progress never advanced: {progress}"
     assert not (tmp_path / f".tmp_{out_path.stem}").exists(), "temp dir should be cleaned up"
+
+
+@requires_ffmpeg
+def test_streamed_mp4_export_keeps_source_audio(tmp_path, sample_video):
+    count, width, height, frames_dir, masks_dir = _export_inputs(tmp_path, sample_video)
+    audio_source = tmp_path / "with-audio.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+            "-i", str(sample_video),
+            "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100:duration=1.2",
+            "-c:v", "copy", "-c:a", "aac", "-shortest", str(audio_source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    out_path = tmp_path / "with-audio-export.mp4"
+    inputs = ExportInputs(
+        frames_dir=frames_dir, masks_dir=masks_dir, n_frames=count,
+        fps=10.0, width=width, height=height, out_path=out_path,
+        audio_source=audio_source,
+    )
+    run_export("overlay_mp4", inputs, lambda fraction, message="": None)
+    assert probe(out_path).has_audio
 
 
 @requires_ffmpeg

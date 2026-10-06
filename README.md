@@ -38,6 +38,9 @@ checks. Synthetic clips are regression tests and are kept out of capability clai
 
 ## The studio
 
+Open **Help** in the editor for the in-app `/docs` field guide. It walks through
+marking, tracking, reviewing problem frames and choosing an export in plain terms.
+
 - Upload common video formats with real progress and bounded frame extraction.
 - Mark foreground/background with clicks, touch or keyboard input; add corrections
   on later frames and propagate in either direction.
@@ -51,6 +54,10 @@ checks. Synthetic clips are regression tests and are kept out of capability clai
   sequence, mask PNG sequence, or COCO-style RLE JSON.
 - Recover saved results after reload, retry interrupted progress connections, cancel
   jobs, and remove clips with their masks and exports.
+- Review playback samples at up to eight frames per second; use the filmstrip and
+  frame controls when you need to inspect or correct a specific frame.
+- Video exports stream composed frames into ffmpeg instead of writing and rereading
+  a temporary PNG sequence, reducing intermediate storage work on the API workspace.
 
 ## Run locally
 

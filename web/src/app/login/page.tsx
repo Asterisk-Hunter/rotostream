@@ -13,7 +13,7 @@ export default function LoginPage() {
           <a href="/login" className="text-[15px] font-semibold tracking-[-0.04em]" aria-label="RotoStream home">
             Roto<span className="text-accent-400">Stream</span>
           </a>
-          <span className="text-xs text-ink-500">Video editing workspace</span>
+          <a href="/docs" className="text-xs text-ink-400 transition-colors hover:text-ink-100">How it works</a>
         </header>
 
         <div className="grid flex-1 items-center gap-12 py-12 md:grid-cols-[minmax(0,1fr)_400px] md:gap-20">

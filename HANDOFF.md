@@ -17,8 +17,8 @@ Hiera encoder and released SAM 2.1 weights. This is a reproduction.
 | Color baseline, same quality protocol | 13.84 J&F |
 | Neural propagation, float32, RTX 4050 Laptop GPU | 2.88 FPS, excluding initialization, prompts and scoring |
 | Module parity | All checks within 1e-5; memory attention maximum difference 7.153e-7 |
-| Python suite | 260 passed, 1 expected failure (including long-sweep memory regressions) |
-| Frontend | 13 tests passed; lint, types and production build passed |
+| Python suite | 273 passed, 1 expected failure (including long-sweep memory regressions) |
+| Frontend | 28 tests passed; lint, types and production build passed |
 | Native HTTP smoke | 73 checks passed, including SSE and six exports |
 | Training dry run | Three backward passes; finite loss, 272/305 trainable tensors with nonzero gradients |
 
@@ -62,6 +62,16 @@ options, mask-source coverage, warnings) built from the same facts the renderer 
 - Video exports mux the source audio when the upload has any (AAC in MP4, Opus in WebM).
 - Sessions store the prompts that produced them, so a reload restores them and the
 studio can say "prompts changed since this run".
+
+The editor now has a linked `/docs` field guide explaining the user's workflow,
+prompt terms, tracker trade-offs, review cues, export formats, hosted limits,
+recovery steps and clip deletion. Timeline state classification and review bins
+are memoized so moving through frames does not rescan the complete score arrays;
+review playback requests up to eight frames per second while the playhead advances
+in clip time. Video exports now stream composed frames to ffmpeg instead of writing
+and rereading temporary PNGs. The local export suite passes for all six formats.
+This reduces intermediate workspace I/O by design; no Cloud Run wall-clock
+improvement has been claimed or measured yet.
 
 Evidence from the same day: the API/ML suite passed (272 passed, 1 expected
 failure), web lint, TypeScript, behavior tests and production build passed, and two

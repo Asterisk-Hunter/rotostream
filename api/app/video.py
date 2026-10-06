@@ -6,6 +6,8 @@ import io
 import math
 import shutil
 import subprocess
+import tempfile
+import threading
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -216,36 +218,90 @@ class ExportInputs:
         )
 
 
-def _encode_png_sequence(
-    tmp_dir: Path, fps: float, out_path: Path, encoder_args: Sequence[Any],
-    audio_source: Path | None = None,
+def _encode_raw_frames(
+    inp: ExportInputs,
+    progress: Progress,
+    frames: Callable[[int], np.ndarray],
+    encoder_args: Sequence[Any],
+    *,
+    pixel_format: str = "rgb24",
+    progress_label: str = "compositing",
 ) -> None:
-    """Encode a PNG sequence, optionally muxing the source clip's audio back in.
-
-    The exports share the source timeline exactly (same frame count, same rate), so
-    copying the original audio is faithful rather than approximate. Dropping it
-    would make an "edited MP4" of a clip with sound silently unedited-sounding, so
-    the audio codec follows the container: AAC in MP4, Opus in WebM.
-    """
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    """Pipe composed frames straight into ffmpeg, avoiding a disk image roundtrip."""
+    inp.out_path.parent.mkdir(parents=True, exist_ok=True)
     command: list[Any] = [
         "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
-        "-framerate", f"{max(fps, 1.0):.6f}",
-        "-i", tmp_dir / "%06d.png",
+        "-f", "rawvideo", "-pix_fmt", pixel_format,
+        "-video_size", f"{inp.width}x{inp.height}",
+        "-framerate", f"{max(inp.fps, 1.0):.6f}", "-i", "pipe:0",
     ]
-    if audio_source is not None:
-        command += ["-i", audio_source]
+    if inp.audio_source is not None:
+        command += ["-i", inp.audio_source]
     command += [*encoder_args]
-    if audio_source is not None:
-        codec = "libopus" if out_path.suffix.lower() == ".webm" else "aac"
+    if inp.audio_source is not None:
+        codec = "libopus" if inp.out_path.suffix.lower() == ".webm" else "aac"
         command += [
             "-map", "0:v:0", "-map", "1:a:0?",
             "-c:a", codec, "-b:a", "160k", "-shortest",
         ]
-    if out_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
+    if inp.out_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
         command += ["-movflags", "+faststart"]
-    command.append(out_path)
-    _run(command)
+    command.append(inp.out_path)
+
+    # A file-backed stderr avoids a pipe deadlock if ffmpeg emits many diagnostics.
+    with tempfile.TemporaryFile() as stderr_file:
+        try:
+            proc = subprocess.Popen(
+                [str(part) for part in command],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr_file,
+            )
+        except FileNotFoundError as exc:  # pragma: no cover - depends on host
+            raise FFmpegError("ffmpeg not found on PATH") from exc
+        timed_out = threading.Event()
+
+        def stop_after_deadline() -> None:
+            timed_out.set()
+            if proc.poll() is None:
+                proc.kill()
+
+        deadline = threading.Timer(get_settings().ffmpeg_timeout_s, stop_after_deadline)
+        deadline.daemon = True
+        deadline.start()
+        try:
+            assert proc.stdin is not None
+            for index in range(inp.n_frames):
+                frame = np.ascontiguousarray(frames(index), dtype=np.uint8)
+                expected_shape = (inp.height, inp.width, 4 if pixel_format == "rgba" else 3)
+                if frame.shape != expected_shape:
+                    raise ValueError(f"export frame {index} has shape {frame.shape}, expected {expected_shape}")
+                proc.stdin.write(frame.tobytes())
+                progress(0.85 * (index + 1) / inp.n_frames, f"{progress_label} {index + 1}/{inp.n_frames}")
+            proc.stdin.close()
+            return_code = proc.wait()
+            if timed_out.is_set():
+                raise FFmpegError("media processing exceeded the configured time limit")
+            if return_code != 0:
+                stderr_file.seek(0)
+                tail = "\n".join(stderr_file.read().decode("utf-8", errors="replace").strip().splitlines()[-6:])
+                raise FFmpegError(f"ffmpeg failed ({return_code}):\n{tail}")
+        except (BrokenPipeError, OSError) as exc:
+            if timed_out.is_set():
+                raise FFmpegError("media processing exceeded the configured time limit") from exc
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            inp.out_path.unlink(missing_ok=True)
+            raise
+        except BaseException:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            inp.out_path.unlink(missing_ok=True)
+            raise
+        finally:
+            deadline.cancel()
 
 
 def _tint(frame: np.ndarray, mask: np.ndarray, alpha: float = 0.45) -> np.ndarray:
@@ -274,70 +330,44 @@ def _background(frame: np.ndarray, mode: str, blur_radius: int) -> np.ndarray:
 
 
 def export_alpha_webm(inp: ExportInputs, progress: Progress) -> Path:
-    tmp = inp.out_path.parent / f".tmp_{inp.out_path.stem}"
-    tmp.mkdir(parents=True, exist_ok=True)
-    try:
-        for index in range(inp.n_frames):
-            frame = inp.frame(index)
-            mask = inp.mask(index)
-            rgba = np.dstack([frame, (mask * 255).astype(np.uint8)])
-            Image.fromarray(rgba, mode="RGBA").save(tmp / f"{index:06d}.png")
-            progress(0.85 * (index + 1) / inp.n_frames, f"compositing {index + 1}/{inp.n_frames}")
-        progress(0.88, "encoding VP9 with alpha")
-        _encode_png_sequence(
-            tmp, inp.fps, inp.out_path,
-            ["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "32",
-             "-auto-alt-ref", "0", "-row-mt", "1", "-cpu-used", "4"],
-            audio_source=inp.audio_source,
-        )
-        progress(1.0, f"wrote {inp.out_path.name}")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    def compose(index: int) -> np.ndarray:
+        return np.dstack([inp.frame(index), (inp.mask(index) * 255).astype(np.uint8)])
+
+    progress(0.02, "encoding transparent video")
+    _encode_raw_frames(
+        inp, progress, compose,
+        ["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "32",
+         "-auto-alt-ref", "0", "-row-mt", "1", "-cpu-used", "4"],
+        pixel_format="rgba",
+    )
+    progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
 
 
 def export_overlay_mp4(inp: ExportInputs, progress: Progress) -> Path:
-    tmp = inp.out_path.parent / f".tmp_{inp.out_path.stem}"
-    tmp.mkdir(parents=True, exist_ok=True)
-    try:
-        for index in range(inp.n_frames):
-            Image.fromarray(_tint(inp.frame(index), inp.mask(index)), mode="RGB").save(
-                tmp / f"{index:06d}.png"
-            )
-            progress(0.85 * (index + 1) / inp.n_frames, f"compositing {index + 1}/{inp.n_frames}")
-        progress(0.88, "encoding H.264")
-        _encode_png_sequence(
-            tmp, inp.fps, inp.out_path,
-            ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
-            audio_source=inp.audio_source,
-        )
-        progress(1.0, f"wrote {inp.out_path.name}")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    progress(0.02, "encoding mask review video")
+    _encode_raw_frames(
+        inp, progress,
+        lambda index: _tint(inp.frame(index), inp.mask(index)),
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
+    )
+    progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
 
 
 def export_replace_bg(inp: ExportInputs, progress: Progress, *, background: str = "blur",
                       blur_radius: int = 24) -> Path:
-    tmp = inp.out_path.parent / f".tmp_{inp.out_path.stem}"
-    tmp.mkdir(parents=True, exist_ok=True)
-    try:
-        for index in range(inp.n_frames):
-            frame = inp.frame(index)
-            mask = inp.mask(index)
-            back = _background(frame, background, blur_radius)
-            composite = np.where(mask[..., None], frame, back)
-            Image.fromarray(composite.astype(np.uint8), mode="RGB").save(tmp / f"{index:06d}.png")
-            progress(0.85 * (index + 1) / inp.n_frames, f"compositing {index + 1}/{inp.n_frames}")
-        progress(0.88, "encoding H.264")
-        _encode_png_sequence(
-            tmp, inp.fps, inp.out_path,
-            ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
-            audio_source=inp.audio_source,
-        )
-        progress(1.0, f"wrote {inp.out_path.name}")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    def compose(index: int) -> np.ndarray:
+        frame = inp.frame(index)
+        back = _background(frame, background, blur_radius)
+        return np.where(inp.mask(index)[..., None], frame, back)
+
+    progress(0.02, "compositing and encoding replacement video")
+    _encode_raw_frames(
+        inp, progress, compose,
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
+    )
+    progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
 
 

@@ -27,6 +27,7 @@ import {
 } from "@/lib/types";
 
 const EMPTY_UPLOAD: UploadState = { active: false, progress: 0, error: null, filename: "" };
+const EMPTY_SCORES: Session["scores"] = [];
 
 /**
  * Everything the studio needs for one clip, loaded as a unit.
@@ -274,6 +275,11 @@ export function Studio() {
   const ready = video?.status === "ready";
   const frames = video?.n_frames ?? 0;
   const summary = useMemo(() => reviewSummary(session), [session]);
+  const timelineScores = session?.scores ?? EMPTY_SCORES;
+  const timelinePromptFrames = useMemo(
+    () => editing ? prompts.map((entry) => entry.frame_index) : session?.prompt_frames ?? [],
+    [editing, prompts, session?.prompt_frames],
+  );
   // Prompts exist in the editor but not yet in the saved session's masks.
   const promptsDirty =
     Boolean(session) && promptSetSignature(prompts) !== promptSetSignature(session?.prompts);
@@ -628,6 +634,7 @@ export function Studio() {
         </div>
         <div className="flex shrink-0 items-center gap-3">
           {!health && !bootError && <Spinner />}
+          <a href="/docs" className="text-xs text-ink-400 transition-colors hover:text-ink-100">Help</a>
           <button type="button" onClick={async () => { const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }); if (response.ok) { router.replace("/login"); router.refresh(); } }} className="border-l border-ink-700 pl-3 text-xs text-ink-400 transition-colors hover:text-ink-100">Sign out</button>
         </div>
       </header>
@@ -683,8 +690,8 @@ export function Studio() {
               <Timeline
                 nFrames={frames}
                 index={frameIndex}
-                scores={session?.scores ?? []}
-                promptFrames={editing ? prompts.map((entry) => entry.frame_index) : session?.prompt_frames ?? []}
+                scores={timelineScores}
+                promptFrames={timelinePromptFrames}
                 summary={summary}
                 fps={video.fps}
                 videoId={video.id}

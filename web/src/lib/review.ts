@@ -125,6 +125,24 @@ export function frameState(
   return "ok";
 }
 
+/** Build a constant-time frame classifier for timeline-wide rendering. */
+export function createFrameStateLookup(
+  summary: ReviewSummary | null,
+  promptFrames: number[],
+): (record: FrameScore | undefined, index: number) => FrameState {
+  const backgroundFrames = new Set(summary?.backgroundOnlyFrames ?? []);
+  const promptedFrames = new Set(promptFrames);
+  const threshold = summary?.threshold ?? LOW_CONFIDENCE;
+  return (record, index) => {
+    if (backgroundFrames.has(index)) return "background";
+    if (promptedFrames.has(index)) return "prompted";
+    if (!record) return "untracked";
+    if (!record.object_present) return "absent";
+    if (record.score < threshold) return "low";
+    return "ok";
+  };
+}
+
 /** Nearest frame that needs attention, in the given direction. Wraps once. */
 export function nextProblemFrame(
   problemFrames: number[],
