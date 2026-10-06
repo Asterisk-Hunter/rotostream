@@ -19,6 +19,7 @@ Hiera encoder and released SAM 2.1 weights. This is a reproduction.
 | Module parity | All checks within 1e-5; memory attention maximum difference 7.153e-7 |
 | Python suite | 273 passed, 1 expected failure (including long-sweep memory regressions) |
 | Frontend | 28 tests passed; lint, types and production build passed |
+| Production dependency audit | No known vulnerabilities after pinning `source-map-js` 1.2.2 |
 | Native HTTP smoke | 73 checks passed, including SSE and six exports |
 | Training dry run | Three backward passes; finite loss, 272/305 trainable tensors with nonzero gradients |
 
@@ -72,6 +73,9 @@ in clip time. Video exports now stream composed frames to ffmpeg instead of writ
 and rereading temporary PNGs. The local export suite passes for all six formats.
 This reduces intermediate workspace I/O by design; no Cloud Run wall-clock
 improvement has been claimed or measured yet.
+The GitHub production dependency audit exposed a high-severity `source-map-js`
+issue inherited through PostCSS; the workspace override pins the patched 1.2.2
+release and the production dependency audit now passes.
 
 Evidence from the same day: the API/ML suite passed (272 passed, 1 expected
 failure), web lint, TypeScript, behavior tests and production build passed, and two
