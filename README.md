@@ -4,6 +4,8 @@
 
 **Click an object in a video, track its mask across frames, and export an editable cutout.**
 
+[Open the hosted studio](https://rotostream.vercel.app) · [Read the public field guide](https://rotostream.vercel.app/docs)
+
 RotoStream combines a Next.js rotoscoping studio, a FastAPI video pipeline, and an
 independent reproduction of SAM 2's memory mechanism. **The pretrained Hiera image
 encoder and released SAM 2.1 weights are reused.** The prompt encoder, memory

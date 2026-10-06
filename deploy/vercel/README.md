@@ -7,6 +7,11 @@ validates the editor session cookie, then forwards `/api/*` requests to Cloud Ru
 with Basic Auth attached server-side. The browser never sees a browser-native
 credential prompt, and the password never enters the frontend bundle.
 
+Share the stable production domain, [`https://rotostream.vercel.app`](https://rotostream.vercel.app),
+and its public [`/docs` field guide](https://rotostream.vercel.app/docs). Per-deployment
+Vercel URLs may require a Vercel team account and can show Vercel's login screen
+instead of RotoStream's editor sign-in.
+
 ## Configure
 
 Link the `web/` directory to a Vercel project with `web/` as its Git root
