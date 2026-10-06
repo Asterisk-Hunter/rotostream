@@ -337,7 +337,7 @@ def export_alpha_webm(inp: ExportInputs, progress: Progress) -> Path:
     _encode_raw_frames(
         inp, progress, compose,
         ["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "32",
-         "-auto-alt-ref", "0", "-row-mt", "1", "-cpu-used", "4"],
+         "-auto-alt-ref", "0", "-row-mt", "1", "-cpu-used", "6"],
         pixel_format="rgba",
     )
     progress(1.0, f"wrote {inp.out_path.name}")
@@ -349,7 +349,7 @@ def export_overlay_mp4(inp: ExportInputs, progress: Progress) -> Path:
     _encode_raw_frames(
         inp, progress,
         lambda index: _tint(inp.frame(index), inp.mask(index)),
-        ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "veryfast"],
     )
     progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
@@ -365,7 +365,7 @@ def export_replace_bg(inp: ExportInputs, progress: Progress, *, background: str 
     progress(0.02, "compositing and encoding replacement video")
     _encode_raw_frames(
         inp, progress, compose,
-        ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"],
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "veryfast"],
     )
     progress(1.0, f"wrote {inp.out_path.name}")
     return inp.out_path
@@ -378,7 +378,7 @@ def export_cutout_zip(inp: ExportInputs, progress: Progress) -> Path:
             mask = inp.mask(index)
             rgba = np.dstack([frame, (mask * 255).astype(np.uint8)])
             buffer = io.BytesIO()
-            Image.fromarray(rgba, mode="RGBA").save(buffer, format="PNG")
+            Image.fromarray(rgba, mode="RGBA").save(buffer, format="PNG", compress_level=3)
             archive.writestr(f"cutout/{index:06d}.png", buffer.getvalue())
             progress(0.95 * (index + 1) / inp.n_frames, f"packing {index + 1}/{inp.n_frames}")
     progress(1.0, f"wrote {inp.out_path.name}")

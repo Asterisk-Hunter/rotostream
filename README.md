@@ -58,6 +58,11 @@ marking, tracking, reviewing problem frames and choosing an export in plain term
   frame controls when you need to inspect or correct a specific frame.
 - Video exports stream composed frames into ffmpeg instead of writing and rereading
   a temporary PNG sequence, reducing intermediate storage work on the API workspace.
+- A repeatable smoke profile measures upload, extraction, preview, tracking, review
+  and export time separately. The local CPU reference completes a 10-second 360p
+  clip and all six deliverables in 31.3 seconds; it is a workflow baseline, not a
+  Cloud Run or neural-tracking promise. See [performance measurements and the
+  authenticated deployment profiling command](docs/PRODUCT-PERFORMANCE.md).
 
 ## Run locally
 

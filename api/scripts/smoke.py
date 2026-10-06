@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import mimetypes
 import os
 import subprocess
 import sys
@@ -63,6 +64,7 @@ EXPORTS = [
     ("mask_rle_json", None, "json"),
     ("replace_bg", None, "mp4"),
 ]
+EXPORT_KINDS = [kind for kind, _signature, _label in EXPORTS]
 #: Containers ffmpeg writes, where the magic number lives inside a box header.
 ISO_MEDIA_KINDS = {"overlay_mp4", "replace_bg"}
 
@@ -190,17 +192,31 @@ def main() -> int:
     parser.add_argument("--keep", action="store_true", help="do not delete the video")
     parser.add_argument("--timeout", type=float, default=180.0, help="per-job timeout seconds")
     parser.add_argument("--auth-user", default=os.environ.get("ROTOSTREAM_SMOKE_USER"), help="gateway username (password from ROTOSTREAM_SMOKE_PASSWORD)")
+    parser.add_argument("--file", type=Path, help="profile a real clip instead of the generated 4-second test clip")
+    parser.add_argument("--point-x", type=float, help="foreground point in the extracted working-resolution frame")
+    parser.add_argument("--point-y", type=float, help="foreground point in the extracted working-resolution frame")
+    parser.add_argument("--frame-index", type=int, default=0, help="frame to prompt (default: 0)")
+    parser.add_argument("--model", help="tracker name (default: service default)")
+    parser.add_argument("--export-kind", choices=EXPORT_KINDS, help="profile one deliverable instead of checking all six")
     args = parser.parse_args()
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be finite and positive")
     password = os.environ.get("ROTOSTREAM_SMOKE_PASSWORD")
     if bool(args.auth_user) != bool(password):
         parser.error("set both --auth-user/ROTOSTREAM_SMOKE_USER and ROTOSTREAM_SMOKE_PASSWORD for authenticated requests")
+    if (args.point_x is None) != (args.point_y is None):
+        parser.error("--point-x and --point-y must be provided together")
+    if args.file and (args.point_x is None or args.point_y is None):
+        parser.error("--file requires --point-x and --point-y in the extracted working resolution")
+    if args.file and not args.file.is_file():
+        parser.error(f"clip does not exist: {args.file}")
 
     base = args.base.rstrip("/")
     print(f"RotoStream smoke test -> {base}")
 
     auth = (args.auth_user, password) if args.auth_user else None
+    timings: dict[str, float] = {}
+    workflow_started = time.perf_counter()
     with httpx.Client(base_url=base, timeout=120.0, auth=auth) as client, cleanup_video(client, args.keep) as cleanup:
         section("service")
         health = client.get("/api/health")
@@ -217,13 +233,17 @@ def main() -> int:
 
         section("upload + extraction")
         with tempfile.TemporaryDirectory() as tmp:
-            clip = make_clip(Path(tmp) / "smoke.mp4")
+            clip = args.file.resolve() if args.file else make_clip(Path(tmp) / "smoke.mp4")
             check("clip rendered", clip.stat().st_size > 0, f"{clip.stat().st_size} bytes")
+            filename = clip.name
+            media_type = mimetypes.guess_type(filename)[0] or "video/mp4"
 
+            stage_started = time.perf_counter()
             with clip.open("rb") as handle:
                 upload = client.post(
-                    "/api/videos", files={"file": ("smoke.mp4", handle, "video/mp4")}
+                    "/api/videos", files={"file": (filename, handle, media_type)}
                 )
+            timings["upload_response_seconds"] = time.perf_counter() - stage_started
             check("POST /api/videos is 201", upload.status_code == 201, upload.text[:200])
             payload = upload.json()
             video_id = payload["video"]["id"]
@@ -235,13 +255,18 @@ def main() -> int:
                 video_id,
             )
 
+            stage_started = time.perf_counter()
             job = wait_for_job(client, payload["job_id"], args.timeout)
+            timings["extraction_seconds"] = time.perf_counter() - stage_started
             check("extraction job succeeded", job["status"] == "succeeded", json.dumps(job)[:200])
             check("extraction progress reached 1.0", job["progress"] == 1.0, str(job["progress"]))
 
             video = client.get(f"/api/videos/{video_id}").json()
             check("video status is ready", video["status"] == "ready", video["status"])
-            check(f"frame count is {N_FRAMES}", video["n_frames"] == N_FRAMES, str(video["n_frames"]))
+            n_frames = int(video["n_frames"])
+            check("clip has extracted frames", n_frames > 0, str(n_frames))
+            if not args.file:
+                check(f"generated clip has {N_FRAMES} frames", n_frames == N_FRAMES, str(n_frames))
             check(
                 "frames downscaled to long side 960 or less",
                 max(video["frame_width"], video["frame_height"]) <= 960,
@@ -254,11 +279,25 @@ def main() -> int:
             check("GET frames/999 is 404", client.get(f"/api/videos/{video_id}/frames/999").status_code == 404)
 
             section("preview (one click, one frame)")
+            frame_index = args.frame_index
+            point_x = args.point_x if args.point_x is not None else SQUARE_AT_T0[0]
+            point_y = args.point_y if args.point_y is not None else SQUARE_AT_T0[1]
+            if not 0 <= frame_index < n_frames:
+                parser.error(f"--frame-index must be between 0 and {n_frames - 1}")
+            if not 0 <= point_x < video["frame_width"] or not 0 <= point_y < video["frame_height"]:
+                parser.error(
+                    f"foreground point must fit the {video['frame_width']}x{video['frame_height']} working frame"
+                )
             prompt = {
-                "frame_index": 0,
-                "points": [{"x": SQUARE_AT_T0[0], "y": SQUARE_AT_T0[1], "positive": True}],
+                "frame_index": frame_index,
+                "points": [{"x": point_x, "y": point_y, "positive": True}],
             }
-            preview = client.post(f"/api/videos/{video_id}/preview", json={"prompt": prompt})
+            stage_started = time.perf_counter()
+            preview_payload = {"prompt": prompt}
+            if args.model:
+                preview_payload["model"] = args.model
+            preview = client.post(f"/api/videos/{video_id}/preview", json=preview_payload)
+            timings["preview_seconds"] = time.perf_counter() - stage_started
             check("POST preview is 200", preview.status_code == 200, body_hint(preview))
             check("preview is a PNG", preview.content[:8] == b"\x89PNG\r\n\x1a\n")
             check(
@@ -268,9 +307,14 @@ def main() -> int:
             )
 
             section("track the whole clip (progress over SSE, as the UI does)")
-            started = client.post(f"/api/videos/{video_id}/track", json={"prompts": [prompt]})
+            track_payload = {"prompts": [prompt]}
+            if args.model:
+                track_payload["model"] = args.model
+            started = client.post(f"/api/videos/{video_id}/track", json=track_payload)
             check("POST track is 202", started.status_code == 202, started.text[:200])
+            stage_started = time.perf_counter()
             stream = collect_sse(client, started.json()["id"], args.timeout)
+            timings["tracking_end_to_end_seconds"] = time.perf_counter() - stage_started
             check(
                 "SSE endpoint is text/event-stream",
                 stream.content_type.startswith("text/event-stream"),
@@ -284,39 +328,51 @@ def main() -> int:
             result = track_job["result"]
             check(
                 "every frame was tracked",
-                result["n_tracked"] == result["n_frames"] == N_FRAMES,
+                result["n_tracked"] == result["n_frames"] == n_frames,
                 f'{result["n_tracked"]}/{result["n_frames"]}',
             )
 
             latest = client.get(f"/api/videos/{video_id}/sessions/latest").json()
-            check("session records the prompt frame", latest["prompt_frames"] == [0], str(latest["prompt_frames"]))
-            check("session has a score per frame", len(latest["scores"]) == N_FRAMES, str(len(latest["scores"])))
+            check("session records the prompt frame", latest["prompt_frames"] == [frame_index], str(latest["prompt_frames"]))
+            check("session has a score per frame", len(latest["scores"]) == n_frames, str(len(latest["scores"])))
 
             section("masks + overlay")
-            for index in (0, N_FRAMES // 2, N_FRAMES - 1):
+            stage_started = time.perf_counter()
+            for index in (0, n_frames // 2, n_frames - 1):
                 mask = client.get(f"/api/videos/{video_id}/masks/{index}")
                 check(f"mask {index} is a PNG", mask.content[:8] == b"\x89PNG\r\n\x1a\n", str(mask.status_code))
-            overlay = client.get(f"/api/videos/{video_id}/overlays/{N_FRAMES // 2}")
+            overlay = client.get(f"/api/videos/{video_id}/overlays/{n_frames // 2}")
             check("overlay is a PNG", overlay.content[:8] == b"\x89PNG\r\n\x1a\n", str(overlay.status_code))
             check(
                 "overlay carries mask stats in headers",
                 int(overlay.headers.get("X-Mask-Area", "0")) > 0,
                 str(overlay.headers.get("X-Mask-Area")),
             )
+            timings["review_assets_seconds"] = time.perf_counter() - stage_started
 
             section("exports")
-            for kind, signature, label in EXPORTS:
+            export_cases = [
+                item for item in EXPORTS if args.export_kind is None or item[0] == args.export_kind
+            ]
+            for kind, signature, label in export_cases:
+                stage_started = time.perf_counter()
                 response = client.post(
                     f"/api/videos/{video_id}/exports", json={"kind": kind}
                 )
                 check(f"export {kind} accepted (202)", response.status_code == 202, response.text[:200])
                 export_job = wait_for_job(client, response.json()["id"], args.timeout)
+                timings[f"export_{kind}_seconds"] = time.perf_counter() - stage_started
                 check(f"export {kind} succeeded", export_job["status"] == "succeeded", json.dumps(export_job)[:200])
 
             listing = client.get(f"/api/videos/{video_id}/exports").json()
-            check("all six export kinds are listed", len(listing) == len(EXPORTS), str(len(listing)))
+            check(
+                f"{len(export_cases)} requested export(s) are listed",
+                len(listing) == len(export_cases),
+                str(len(listing)),
+            )
             by_kind = {item["kind"]: item for item in listing}
-            for kind, signature, label in EXPORTS:
+            stage_started = time.perf_counter()
+            for kind, signature, label in export_cases:
                 record = by_kind[kind]
                 check(f"export {kind} has bytes", record["size_bytes"] > 0, f'{record["size_bytes"]} bytes')
                 download = client.get(record["download_url"])
@@ -333,6 +389,7 @@ def main() -> int:
                     check("mask_rle_json parses", isinstance(json.loads(payload_json), (dict, list)))
                 if kind in ISO_MEDIA_KINDS:
                     check(f"export {kind} is an ISO media file", b"ftyp" in download.content[:32])
+            timings["download_all_exports_seconds"] = time.perf_counter() - stage_started
 
             section("cleanup")
             if args.keep:
@@ -342,8 +399,24 @@ def main() -> int:
                 check("DELETE is 204", deleted.status_code == 204, str(deleted.status_code))
                 check("video is gone", client.get(f"/api/videos/{video_id}").status_code == 404)
 
+    profile = {
+        "base_url": base,
+        "clip": {
+            "source_width": video["width"], "source_height": video["height"],
+            "working_width": video["frame_width"], "working_height": video["frame_height"],
+            "fps": video["fps"], "duration_seconds": video["duration_s"], "frames": video["n_frames"],
+        },
+        "tracker": latest.get("model"),
+        "export_kinds": [args.export_kind] if args.export_kind else EXPORT_KINDS,
+        "stages_seconds": {key: round(value, 3) for key, value in timings.items()},
+        "workflow_seconds": round(time.perf_counter() - workflow_started, 3),
+    }
+    print(f"\nPROFILE {json.dumps(profile, sort_keys=True, separators=(',', ':'))}")
     print(f"\n\033[32m{passed} checks passed\033[0m - the API is wired up end to end.")
-    print("Upload, causal tracking, SSE and six export formats verified using the configured tracker.")
+    if args.export_kind:
+        print(f"Upload, causal tracking, SSE and the {args.export_kind} export verified using the configured tracker.")
+    else:
+        print("Upload, causal tracking, SSE and six export formats verified using the configured tracker.")
     return 0
 
 

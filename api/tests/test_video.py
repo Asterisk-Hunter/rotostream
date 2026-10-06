@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import subprocess
+import io
+import zipfile
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from app import masks as mask_utils
 from app.video import (
@@ -179,6 +182,23 @@ def test_streamed_mp4_export_keeps_source_audio(tmp_path, sample_video):
     )
     run_export("overlay_mp4", inputs, lambda fraction, message="": None)
     assert probe(out_path).has_audio
+
+
+@requires_ffmpeg
+def test_cutout_zip_has_lossless_rgba_frames(tmp_path, sample_video):
+    count, width, height, frames_dir, masks_dir = _export_inputs(tmp_path, sample_video)
+    out_path = tmp_path / "cutout.zip"
+    inputs = ExportInputs(
+        frames_dir=frames_dir, masks_dir=masks_dir, n_frames=count,
+        fps=10.0, width=width, height=height, out_path=out_path,
+    )
+    run_export("cutout_zip", inputs, lambda fraction, message="": None)
+
+    with zipfile.ZipFile(out_path) as archive:
+        with Image.open(io.BytesIO(archive.read("cutout/000000.png"))) as image:
+            result = np.asarray(image.convert("RGBA"))
+    expected = np.dstack([inputs.frame(0), (inputs.mask(0) * 255).astype(np.uint8)])
+    assert np.array_equal(result, expected)
 
 
 @requires_ffmpeg

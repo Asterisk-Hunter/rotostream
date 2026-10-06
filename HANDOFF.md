@@ -1,7 +1,8 @@
 # RotoStream handoff
 
 Updated 2026-10-06. Start with [README](README.md), [results](docs/RESULTS.md),
-[architecture](docs/ARCHITECTURE.md) and [deployment](docs/DEPLOYMENT.md).
+[architecture](docs/ARCHITECTURE.md), [deployment](docs/DEPLOYMENT.md) and the
+[product performance report](docs/PRODUCT-PERFORMANCE.md).
 
 ## Current state
 
@@ -70,12 +71,31 @@ recovery steps and clip deletion. Timeline state classification and review bins
 are memoized so moving through frames does not rescan the complete score arrays;
 review playback requests up to eight frames per second while the playhead advances
 in clip time. Video exports now stream composed frames to ffmpeg instead of writing
-and rereading temporary PNGs. The local export suite passes for all six formats.
-This reduces intermediate workspace I/O by design; no Cloud Run wall-clock
-improvement has been claimed or measured yet.
+and rereading temporary PNGs. H.264 exports use the `veryfast` preset, VP9 alpha
+export uses `cpu-used 6`, and the lossless cutout PNG sequence uses compression
+level 3. The local export suite passes for all six formats and verifies cutout
+pixels exactly.
+
+The profile mode in `api/scripts/smoke.py` can run a real clip through upload,
+extraction, preview, full tracking via SSE, review assets and one or all exports;
+it prints per-stage timings in a final `PROFILE` JSON line and deletes its test
+upload by default. On 2026-10-06, an isolated local CPU run of a 10.01-second,
+300-frame, 640×360 clip using `naive` completed the full workflow including all
+six exports and downloads in 31.349 seconds. Tracking took 4.674 seconds;
+sequential exports took 22.205 seconds. This is one local run, not a percentile or
+a neural quality/speed claim. A controlled local `replace_bg` comparison measured
+2.612 seconds at H.264 `medium` and 2.460 seconds at `veryfast`. Detailed
+methodology and the authenticated Cloud Run profile command are in
+[the performance report](docs/PRODUCT-PERFORMANCE.md). Hosted Cloud Run
+wall-clock performance has not yet been measured.
 The GitHub production dependency audit exposed a high-severity `source-map-js`
 issue inherited through PostCSS; the workspace override pins the patched 1.2.2
 release and the production dependency audit now passes.
+The full development dependency audit currently reports `braces@3.0.3` through
+`eslint-config-next`; the GitHub advisory lists no patched version yet
+([GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)). It is
+not in the production dependency graph (`pnpm audit --prod` passes). Recheck the
+upstream package and full audit when a fix is published.
 
 Evidence from the same day: the API/ML suite passed (272 passed, 1 expected
 failure), web lint, TypeScript, behavior tests and production build passed, and two
