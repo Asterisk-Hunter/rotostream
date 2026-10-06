@@ -89,12 +89,15 @@ a neural quality/speed claim. A controlled local `replace_bg` comparison measure
 methodology and the authenticated Vercel session-mode profile command are in
 [the performance report](docs/PRODUCT-PERFORMANCE.md). Hosted Cloud Run
 wall-clock performance has not yet been measured.
-An additional 20-second local API profile on the same day tracked 480 extracted
-frames in 8.352 seconds and rendered one replaced-background export in 27.379
-seconds (37.702 seconds end to end); the API reported CUDA available but used
-`naive`. Export was 73% of this run. The source container's `nb_frames` field
-reported 534, but full decode and extraction both yielded 480 frames. This is a
-single uncontrolled local observation; see the report for its limits.
+The earlier 20-second local profile against a pre-existing API process recorded
+an outdated 27.379-second export; inspection found that process had started
+before the current streaming exporter was written. Three fresh API profiles
+from the current checkout on the same 480-frame, 640×360 clip rendered
+`replace_bg` in 4.756 seconds median (4.601–7.197) and completed the full
+workflow in 15.114 seconds median (14.569–20.535). All used `naive`; these are
+local measurements, not Cloud Run or neural performance. The source container's
+`nb_frames` field reports 534, but full decode and extraction both yield 480.
+See the report for stage timings and methodology.
 The GitHub production dependency audit exposed a high-severity `source-map-js`
 issue inherited through PostCSS; the workspace override pins the patched 1.2.2
 release and the production dependency audit now passes.

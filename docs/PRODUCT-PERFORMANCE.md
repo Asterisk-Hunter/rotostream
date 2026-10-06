@@ -37,16 +37,18 @@ about larger and higher-resolution footage. The `naive` tracker is a deliberatel
 simple reference baseline; this is not a quality or neural-speed result. Export
 durations can vary with ffmpeg, CPU load, storage and codec settings.
 
-## A longer local workflow profile
+## A longer profile from an outdated local service
 
-A second profile on 2026-10-06 used `test-media/bbb-seg-b.mp4` against the API
-already running at `127.0.0.1:8010`. The clip is 20.016 seconds at 640×360 and
-24 fps. Its container advertises 534 frames in `nb_frames`, while a full decode
-and the API's extraction both produced 480 frames; the profile below uses the
-480 frames actually extracted and tracked. The API health response reported
-CUDA available, but this run explicitly selected the `naive` tracker. The API
-process's exact build and machine load were not controlled, so treat this as a
-local workflow observation, not a reproducible benchmark or Cloud Run result.
+An initial longer profile on 2026-10-06 used `test-media/bbb-seg-b.mp4` against
+the API already running at `127.0.0.1:8010`. The clip is 20.016 seconds at
+640×360 and 24 fps. Its container advertises 534 frames in `nb_frames`, while a
+full decode and the API's extraction both produced 480 frames; the profile
+below uses the 480 frames actually extracted and tracked. The API health
+response reported CUDA available, but this run explicitly selected the `naive`
+tracker. Later inspection confirmed that this API process had been started
+before the current exporter was written. It was still using the older
+temporary-PNG export path, so these timings are historical and do not represent
+the current code.
 
 | Stage | Time |
 | --- | ---: |
@@ -59,12 +61,29 @@ local workflow observation, not a reproducible benchmark or Cloud Run result.
 | Download | 0.012 s |
 | Complete workflow | 37.702 s |
 
-The export accounted for about 73% of this run's elapsed workflow time. That
-makes export latency the main user-visible cost in this particular profile and
-supports prioritizing export-stage timing and representative deployment runs.
-The earlier 10-second isolated CPU run rendered all six formats and is useful
-for end-to-end coverage, but differences in clip, API process, and environment
-mean the two runs should not be used as a speedup comparison.
+The 27.379-second export was the largest wait in that historical workflow. A
+fresh API process was started from the current checkout in a separate local
+workspace and the same clip, prompt, tracker, and export were profiled three
+times over HTTP. The current implementation streams composed frames directly
+to ffmpeg. The median and range were:
+
+| Stage | Median | Range |
+| --- | ---: | ---: |
+| Upload response | 0.043 s | 0.032–0.050 s |
+| Frame extraction | 0.617 s | 0.616–0.625 s |
+| One-frame preview | 0.269 s | 0.220–0.372 s |
+| Full-clip tracking, including SSE | 8.056 s | 7.907–8.527 s |
+| Review assets | 0.049 s | 0.048–0.061 s |
+| Replaced-background MP4 export | 4.756 s | 4.601–7.197 s |
+| Download | 0.012 s | 0.012–0.042 s |
+| Complete workflow | 15.114 s | 14.569–20.535 s |
+
+Each fresh-process run extracted and tracked 480 frames and completed all 43
+smoke checks. The prior 27.379-second export is about 5.8 times the new median,
+but the old API had different exporter code loaded, so this is a before/after
+diagnosis rather than a controlled speedup claim. The 10-second isolated CPU
+run remains useful for end-to-end coverage, but is a different workload. None
+of these local results are Cloud Run timings or neural tracker performance.
 
 ## Changes aimed at saving editor time
 
