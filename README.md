@@ -38,8 +38,9 @@ checks. Synthetic clips are regression tests and are kept out of capability clai
 
 ## The studio
 
-Open **Help** in the editor for the in-app `/docs` field guide. It walks through
-marking, tracking, reviewing problem frames and choosing an export in plain terms.
+Read the public [`/docs` field guide](https://rotostream.vercel.app/docs) before
+signing in, or open **Help** from inside the editor. It explains marking, tracking,
+reviewing problem frames and choosing an export in plain terms.
 
 - Upload common video formats with real progress and bounded frame extraction.
 - Mark foreground/background with clicks, touch or keyboard input; add corrections

@@ -186,12 +186,27 @@ def wait_for_job(client: httpx.Client, job_id: str, timeout: float = 180.0) -> d
     raise SystemExit(f"job {job_id} still {last.get('status')!r} after {timeout}s")
 
 
+def login_editor_session(
+    client: httpx.Client, base_url: str, username: str, password: str,
+) -> httpx.Response:
+    """Sign in through the Vercel proxy so later requests use its session cookie."""
+    return client.post(
+        "/auth/login",
+        json={"username": username, "password": password},
+        headers={"Origin": base_url},
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="http://127.0.0.1:8010", help="API base URL")
     parser.add_argument("--keep", action="store_true", help="do not delete the video")
     parser.add_argument("--timeout", type=float, default=180.0, help="per-job timeout seconds")
-    parser.add_argument("--auth-user", default=os.environ.get("ROTOSTREAM_SMOKE_USER"), help="gateway username (password from ROTOSTREAM_SMOKE_PASSWORD)")
+    parser.add_argument("--auth-user", default=os.environ.get("ROTOSTREAM_SMOKE_USER"), help="auth username (password from ROTOSTREAM_SMOKE_PASSWORD)")
+    parser.add_argument(
+        "--auth-mode", choices=("basic", "session"), default="basic",
+        help="HTTP Basic for the Cloud Run gateway, or the Vercel editor sign-in session",
+    )
     parser.add_argument("--file", type=Path, help="profile a real clip instead of the generated 4-second test clip")
     parser.add_argument("--point-x", type=float, help="foreground point in the extracted working-resolution frame")
     parser.add_argument("--point-y", type=float, help="foreground point in the extracted working-resolution frame")
@@ -201,9 +216,14 @@ def main() -> int:
     args = parser.parse_args()
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be finite and positive")
+    base = args.base.rstrip("/")
     password = os.environ.get("ROTOSTREAM_SMOKE_PASSWORD")
-    if bool(args.auth_user) != bool(password):
+    if bool(args.auth_user) != bool(password) and (args.auth_user or password):
         parser.error("set both --auth-user/ROTOSTREAM_SMOKE_USER and ROTOSTREAM_SMOKE_PASSWORD for authenticated requests")
+    if args.auth_mode == "session" and not (args.auth_user and password):
+        parser.error("--auth-mode session requires ROTOSTREAM_SMOKE_USER and ROTOSTREAM_SMOKE_PASSWORD")
+    if args.auth_mode == "session" and not base.startswith("https://"):
+        parser.error("--auth-mode session requires an HTTPS base URL to protect the editor password")
     if (args.point_x is None) != (args.point_y is None):
         parser.error("--point-x and --point-y must be provided together")
     if args.file and (args.point_x is None or args.point_y is None):
@@ -211,13 +231,19 @@ def main() -> int:
     if args.file and not args.file.is_file():
         parser.error(f"clip does not exist: {args.file}")
 
-    base = args.base.rstrip("/")
     print(f"RotoStream smoke test -> {base}")
 
-    auth = (args.auth_user, password) if args.auth_user else None
+    auth = (args.auth_user, password) if args.auth_user and args.auth_mode == "basic" else None
     timings: dict[str, float] = {}
     workflow_started = time.perf_counter()
     with httpx.Client(base_url=base, timeout=120.0, auth=auth) as client, cleanup_video(client, args.keep) as cleanup:
+        if args.auth_mode == "session":
+            section("sign in")
+            stage_started = time.perf_counter()
+            login = login_editor_session(client, base, args.auth_user, password)
+            timings["login_seconds"] = time.perf_counter() - stage_started
+            check("POST /auth/login creates an editor session", login.status_code == 200, str(login.status_code))
+
         section("service")
         health = client.get("/api/health")
         check("GET /api/health is 200", health.status_code == 200, str(health.status_code))
@@ -401,6 +427,7 @@ def main() -> int:
 
     profile = {
         "base_url": base,
+        "auth_mode": args.auth_mode if args.auth_user else "none",
         "clip": {
             "source_width": video["width"], "source_height": video["height"],
             "working_width": video["frame_width"], "working_height": video["frame_height"],
