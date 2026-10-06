@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionSigningSecret, SESSION_COOKIE, verifySessionToken } from "./lib/session";
+import { isPublicGuide } from "./lib/routeAccess";
 
 function isAuthenticated(request: NextRequest): boolean {
   const username = process.env.ROTOSTREAM_AUTH_USER;
@@ -13,6 +14,10 @@ function isAuthenticated(request: NextRequest): boolean {
 
 export function proxy(request: NextRequest): NextResponse {
   if (process.env.NODE_ENV !== "production") return NextResponse.next();
+
+  // The field guide helps people decide whether to sign in; it contains no
+  // workspace data and should be reachable from the public login screen.
+  if (isPublicGuide(request.nextUrl.pathname)) return NextResponse.next();
 
   const authenticated = isAuthenticated(request);
 

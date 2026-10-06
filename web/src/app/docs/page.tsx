@@ -92,7 +92,7 @@ export default function DocsPage() {
           <section id="limits" className="scroll-mt-8">
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-500">06 / Expectations</p>
             <h2 className="mt-2 text-xl font-medium tracking-[-0.025em] text-ink-100">Clip size and speed</h2>
-            <p className="mt-3">The hosted demo extracts up to 900 frames and processes them at a working resolution with a 960-pixel long side. Larger uploads take longer to upload and extract; a longer clip also means more frames to track and export. A 10-second clip is a good first test.</p>
+            <p className="mt-3">The hosted demo extracts up to 900 frames and processes them at a working resolution with a 720-pixel long side. Larger uploads take longer to upload and extract; a longer clip also means more frames to track and export. A 10-second clip is a good first test.</p>
             <p className="mt-3">The hosted setup runs one CPU demo worker. Tracking and export jobs run on the service and do not survive an instance restart. SAM 2.1 is not enabled on that hosted CPU service. Treat the hosted service as a private, single-editor demo, not shared or archival storage.</p>
           </section>
 
