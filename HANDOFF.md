@@ -65,10 +65,11 @@ options, mask-source coverage, warnings) built from the same facts the renderer 
 - Sessions store the prompts that produced them, so a reload restores them and the
 studio can say "prompts changed since this run".
 
-The editor now has a linked `/docs` field guide explaining the user's workflow,
-prompt terms, tracker trade-offs, review cues, export formats, hosted limits,
-recovery steps and clip deletion. Timeline state classification and review bins
-are memoized so moving through frames does not rescan the complete score arrays;
+The public `/docs` field guide is linked from the sign-in page and editor Help. It
+explains the workflow, prompt terms, tracker trade-offs, review cues, export
+formats, hosted limits, recovery steps and clip deletion. Timeline state
+classification and review bins are memoized so moving through frames does not
+rescan the complete score arrays;
 review playback requests up to eight frames per second while the playhead advances
 in clip time. Video exports now stream composed frames to ffmpeg instead of writing
 and rereading temporary PNGs. H.264 exports use the `veryfast` preset, VP9 alpha
@@ -85,9 +86,15 @@ six exports and downloads in 31.349 seconds. Tracking took 4.674 seconds;
 sequential exports took 22.205 seconds. This is one local run, not a percentile or
 a neural quality/speed claim. A controlled local `replace_bg` comparison measured
 2.612 seconds at H.264 `medium` and 2.460 seconds at `veryfast`. Detailed
-methodology and the authenticated Cloud Run profile command are in
+methodology and the authenticated Vercel session-mode profile command are in
 [the performance report](docs/PRODUCT-PERFORMANCE.md). Hosted Cloud Run
 wall-clock performance has not yet been measured.
+An additional 20-second local API profile on the same day tracked 480 extracted
+frames in 8.352 seconds and rendered one replaced-background export in 27.379
+seconds (37.702 seconds end to end); the API reported CUDA available but used
+`naive`. Export was 73% of this run. The source container's `nb_frames` field
+reported 534, but full decode and extraction both yielded 480 frames. This is a
+single uncontrolled local observation; see the report for its limits.
 The GitHub production dependency audit exposed a high-severity `source-map-js`
 issue inherited through PostCSS; the workspace override pins the patched 1.2.2
 release and the production dependency audit now passes.
