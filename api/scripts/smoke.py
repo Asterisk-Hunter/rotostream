@@ -190,6 +190,8 @@ def login_editor_session(
     client: httpx.Client, base_url: str, username: str, password: str,
 ) -> httpx.Response:
     """Sign in through the Vercel proxy so later requests use its session cookie."""
+    # Keep browser-style same-origin headers on later mutations and cleanup.
+    client.headers["Origin"] = base_url
     return client.post(
         "/auth/login",
         json={"username": username, "password": password},

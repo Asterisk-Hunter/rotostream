@@ -40,9 +40,12 @@ checks. Synthetic clips are regression tests and are kept out of capability clai
 
 ## The studio
 
-Read the public [`/docs` field guide](https://rotostream.vercel.app/docs) before
-signing in, or open **Help** from inside the editor. It explains marking, tracking,
-reviewing problem frames and choosing an export in plain terms.
+Open the hosted studio without signing in, or read the public
+[`/docs` field guide](https://rotostream.vercel.app/docs). **Help** is also available
+inside the editor. It explains marking, tracking, reviewing problem frames and
+choosing an export in plain terms. The hosted demo shares clips between visitors
+and limits uploads and processing; use non-private footage. See the
+[demo limits](deploy/vercel/README.md#demo-limits) for quotas and their limitations.
 
 - Upload common video formats with real progress and bounded frame extraction.
 - Mark foreground/background with clicks, touch or keyboard input; add corrections

@@ -114,8 +114,10 @@ export implementation; benchmark claims should be refreshed if they change.
 
 Run this from the repository root in PowerShell. It prompts locally for the
 editor password; do not put the password in a command, shell history, or chat.
-The smoke script signs in to the Vercel app over HTTPS, keeps its session cookie
-in memory, and deletes the uploaded test clip after the run. Choose a foreground
+The public studio opens without signing in. This administrative smoke script
+creates an editor session over HTTPS so it can delete the uploaded test clip
+after the run; public visitors cannot delete shared clips. It keeps its session
+cookie in memory and sends same-origin headers on mutations. Choose a foreground
 point that lies on the subject in the extracted working resolution. For a fast
 check, the included jellyfish clip is 640×360 and the example point below is near
 its center.
@@ -135,8 +137,8 @@ Remove-Item Env:ROTOSTREAM_SMOKE_USER
 
 The final `PROFILE` JSON line reports upload, extraction, preview, tracking,
 review, export and download times. `--export-kind` keeps a deployment run to one
-deliverable; omit it to run all six exports. This route exercises the branded
-sign-in, Vercel's server-side credential relay, and the Cloud Run API as an editor
+deliverable; omit it to run all six exports. This route exercises the editor
+session, Vercel's server-side credential relay, and the Cloud Run API as an editor
 uses them. To isolate the Cloud Run gateway instead, set `--base` to the Cloud Run
 service URL and omit `--auth-mode session`; the default uses HTTP Basic Auth.
 Check the Cloud Run revision, machine type, region and concurrency alongside each

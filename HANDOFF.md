@@ -65,7 +65,9 @@ options, mask-source coverage, warnings) built from the same facts the renderer 
 - Sessions store the prompts that produced them, so a reload restores them and the
 studio can say "prompts changed since this run".
 
-The public `/docs` field guide is linked from the sign-in page and editor Help. It
+The hosted studio opens without signing in. The public `/docs` field guide is
+linked from editor Help. The demo shares clips and limits uploads and processing;
+see `deploy/vercel/README.md` for quotas and their limitations. The field guide
 explains the workflow, prompt terms, tracker trade-offs, review cues, export
 formats, hosted limits, recovery steps and clip deletion. Timeline state
 classification and review bins are memoized so moving through frames does not

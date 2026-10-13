@@ -8,8 +8,10 @@ the same browser origin for requests, images, downloads and SSE.
 For the deployed managed-service option, see the [Cloud Run guide](../deploy/cloudrun/README.md).
 It uses a single instance and Cloud Storage volume mount; it is a private-editor
 demo deployment, not a multi-user or multi-instance setup.
-The [Vercel guide](../deploy/vercel/README.md) describes hosting the studio UI on
-Vercel while keeping uploads and tracking on the authenticated Cloud Run API.
+The [Vercel guide](../deploy/vercel/README.md) describes the public outreach studio
+UI on Vercel, with usage limits and a shared workspace, while keeping uploads and
+tracking on the authenticated Cloud Run API. The hosted Vercel studio does not
+require an editor login; the container gateway described below still does.
 
 ## Container deployment
 

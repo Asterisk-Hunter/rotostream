@@ -38,4 +38,5 @@ def test_session_login_keeps_cookie_and_sends_password_only_to_signin() -> None:
     assert requests[0].headers["origin"] == base_url
     assert requests[0].read().decode() == '{"username":"editor","password":"never-log-this-password"}'
     assert requests[1].url.path == "/api/health"
+    assert requests[1].headers["origin"] == base_url
     assert requests[1].headers["cookie"] == "rotostream_session=test-session"
