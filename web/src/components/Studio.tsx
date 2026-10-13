@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { FrameStage } from "@/components/FrameStage";
 import { ExportPanel, MemoryPanel, PromptPanel, TrackPanel } from "@/components/Panels";
@@ -75,7 +74,6 @@ async function fetchClip(videoId: string): Promise<Clip> {
 }
 
 export function Studio() {
-  const router = useRouter();
   const [health, setHealth] = useState<Health | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [model, setModel] = useState("");
@@ -635,7 +633,7 @@ export function Studio() {
         <div className="flex shrink-0 items-center gap-3">
           {!health && !bootError && <Spinner />}
           <a href="/docs" className="text-xs text-ink-400 transition-colors hover:text-ink-100">Help</a>
-          <button type="button" onClick={async () => { const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }); if (response.ok) { router.replace("/login"); router.refresh(); } }} className="border-l border-ink-700 pl-3 text-xs text-ink-400 transition-colors hover:text-ink-100">Sign out</button>
+          <span className="border-l border-ink-700 pl-3 text-xs text-ink-400">Public demo · shared clips · usage limits apply</span>
         </div>
       </header>
 
