@@ -15,7 +15,8 @@ export class DemoLimiter {
     // Fail closed instead of evicting active quotas under a flood of new IPs.
     if (this.buckets.size >= 10_000 && !this.buckets.has(`requests:${client}`)) return 60;
 
-    const rules: Rule[] = [{ key: `requests:${client}`, limit: 300, windowMs: MINUTE }];
+    // Frame playback can request both an image and mask for each frame.
+    const rules: Rule[] = [{ key: `requests:${client}`, limit: 3000, windowMs: MINUTE }];
     if (method === "POST") {
       const upload = pathname === "/api/videos" || pathname === "/api/videos/";
       const category = upload ? "uploads" : "processing";

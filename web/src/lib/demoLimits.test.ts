@@ -36,3 +36,12 @@ test("mutations require same-origin browser requests and public deletes are bloc
   assert.equal(mutationAllowed("DELETE", "https://demo.test", "https://demo.test", true), true);
   assert.equal(mutationAllowed("GET", null, "https://demo.test", false), true);
 });
+
+test("read allowance supports playback and rejects request floods until the next minute", () => {
+  const limiter = new DemoLimiter();
+  for (let count = 0; count < 3000; count++) {
+    assert.equal(limiter.check("viewer", "GET", "/api/videos/clip/frames/1", 0), 0);
+  }
+  assert.equal(limiter.check("viewer", "GET", "/api/videos/clip/frames/1", 0), 60);
+  assert.equal(limiter.check("viewer", "GET", "/api/videos/clip/frames/1", 60_000), 0);
+});

@@ -41,7 +41,7 @@ Cloud Run continues to enforce its configured upload cap and request timeout.
 
 ## Demo limits
 
-The proxy allows 300 API requests per minute, two uploads per hour, and 20 other
+The proxy allows 3,000 API requests per minute (including playback frames), two uploads per hour, and 20 other
 POST requests per hour per visitor IP. Each proxy instance also allows at most
 20 uploads and 100 other POST requests per hour across visitors. Requests beyond
 these limits receive JSON `429` with `Retry-After`; rejected requests do not reach
