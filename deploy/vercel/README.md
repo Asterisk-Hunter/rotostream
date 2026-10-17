@@ -9,7 +9,7 @@ server-side; the password never enters the frontend bundle.
 Share the stable production domain, [`https://rotostream.vercel.app`](https://rotostream.vercel.app),
 and its public [`/docs` field guide](https://rotostream.vercel.app/docs). Per-deployment
 Vercel URLs may require a Vercel team account and can show Vercel's login screen
-instead of RotoStream's editor sign-in.
+instead of the public RotoStream studio.
 
 ## Configure
 

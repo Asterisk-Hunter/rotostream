@@ -1,7 +1,8 @@
 # Release validation
 
-Validated 2026-10-03. This is a record of executed checks, not a claim that every
-possible input or deployment has been tested.
+Historical validation record from 2026-10-03. This records the checks executed at
+that time, not a fresh test run or a claim that every possible input or deployment
+has been tested. The current hosted audit status follows below.
 
 | Check | Result |
 | --- | --- |
@@ -58,5 +59,24 @@ builds the production stack and exercises it through gateway authentication.
 Local Windows Docker image-list and pull commands hung after Desktop startup.
 Container execution is therefore established by Linux CI, not a local Docker pass.
 The shipped image supports the CPU baseline; native GPU inference was measured
-separately. No hosted production deployment, real-data fine-tuning or real-time
-neural throughput is claimed.
+separately. This historical record did not establish a hosted production
+deployment. No real-data fine-tuning or real-time neural throughput is claimed.
+
+## Hosted and production-build review — 2026-10-15
+
+The public studio is now deployed at [rotostream.vercel.app](https://rotostream.vercel.app),
+with a shared workspace and a CPU `naive` tracker on Cloud Run. The hosted browser
+audit exercised upload, prompts, tracking, review, two MP4 exports and downloads.
+The initial browser audit observed a
+30-second startup timeout that left editing disabled until Retry, and delete
+controls visible to anonymous visitors even though the proxy rejects their
+deletion requests. The patch adds bounded startup recovery, server-derived delete
+capability, a narrow-layout header fix and rendered MP4 previews. On the production
+build, a deliberately aborted health request recovered automatically after the
+route was restored, anonymous delete controls were absent, and the rendered MP4
+played. Desktop and 390px layouts were checked without browser JavaScript errors.
+
+`pnpm verify` and the production dependency audit passed for this patch; the web
+suite contains 41 passing tests. See the [demo review](DEMO-REVIEW.md) for raw
+output checks, recording scope, job durations and comparison limits. CI passed
+for the preceding commit `6bf6922`; the patch's CI remains a separate release gate.

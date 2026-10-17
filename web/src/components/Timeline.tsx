@@ -255,7 +255,7 @@ export function Timeline({
             ? `Mask on ${summary.nMasked}/${summary.nFrames} frames` +
               (absentCount ? ` · ${absentCount} without a mask` : "") +
               (lowCount ? ` · ${lowCount} low confidence` : "") +
-              (problems.length === 0 ? " · nothing to fix" : "")
+              (problems.length === 0 ? " · no automatic review flags" : "")
             : "Not tracked yet"}
         </p>
       </div>

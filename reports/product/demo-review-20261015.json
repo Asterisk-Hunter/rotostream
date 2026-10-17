@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-15",
+  "base_url": "https://rotostream.vercel.app",
+  "cloud_run_revision": "rotostream-00006-9pm",
+  "tracker": "naive",
+  "device": "cpu",
+  "torch_available": false,
+  "source": "samples/moving-square.mp4",
+  "clip": {"width": 640, "height": 360, "fps": 15, "frames": 60, "duration_seconds": 4},
+  "prompt": {"frame_index": 0, "x": 38, "y": 180},
+  "job_records": [
+    {"kind": "extract", "created_at": "2026-10-15T08:21:53Z", "updated_at": "2026-10-15T08:22:03Z", "status": "succeeded"},
+    {"kind": "track", "created_at": "2026-10-15T08:23:42Z", "updated_at": "2026-10-15T08:23:52Z", "status": "succeeded", "elapsed_seconds": 9.60745120048523},
+    {"kind": "export", "background": "blur", "created_at": "2026-10-15T08:24:51Z", "updated_at": "2026-10-15T08:24:55Z", "status": "succeeded", "bytes": 25554},
+    {"kind": "export", "background": "black", "created_at": "2026-10-15T08:27:55Z", "updated_at": "2026-10-15T08:27:57Z", "status": "succeeded", "bytes": 8327}
+  ],
+  "mask_samples": [
+    {"frame": 0, "iou": 0.9892578125},
+    {"frame": 15, "iou": 0.99658203125},
+    {"frame": 30, "iou": 0.9951171875},
+    {"frame": 45, "iou": 0.9970703125},
+    {"frame": 59, "iou": 0.9970703125}
+  ],
+  "decoded_blur_export": {"frames": 60, "codec": "h264", "width": 640, "height": 360, "fps": 15, "duration_seconds": 4},
+  "rgb_mean_absolute_difference_0_to_255": {"true_foreground": 2.3379665798611113, "true_background": 3.5980790097489312},
+  "recording": {"local_path": "runs/product-audit-20261015/review.webm", "duration_seconds": 52.6, "width": 1440, "height": 900, "codec": "vp8", "scope": "review playback and black-background export, not upload/first tracking"},
+  "limits": ["One synthetic clip; five sampled masks", "No same-clip Meta comparison", "Job timestamps are second-resolution, not workflow latency", "Initial cold-start request timed out after 30 seconds", "Shared public demo test clip retained; anonymous deletion is forbidden"]
+}

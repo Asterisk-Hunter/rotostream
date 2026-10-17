@@ -23,9 +23,10 @@ interface Props {
   onSelect: (videoId: string) => void;
   onUpload: (file: File) => void;
   onDelete: (videoId: string) => void;
+  canDelete?: boolean;
 }
 
-export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, onDelete }: Props) {
+export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, onDelete, canDelete = true }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -162,7 +163,7 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
                 </span>
               </button>
 
-              <div className="absolute right-1.5 top-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              {canDelete && <div className="absolute right-1.5 top-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <Button
                   variant="ghost"
                   aria-label={`Delete ${video.filename}`}
@@ -172,8 +173,8 @@ export function ProjectRail({ videos, selectedId, upload, onSelect, onUpload, on
                 >
                   <TrashIcon className="h-3.5 w-3.5" />
                 </Button>
-              </div>
-              {deleteId === video.id && (
+              </div>}
+              {canDelete && deleteId === video.id && (
                 <div className="space-y-2 border-t border-negative/25 bg-negative/5 p-2.5">
                   <p className="text-[11px] text-ink-200">Delete this clip, all masks and exports?</p>
                   <div className="flex gap-2">

@@ -1,8 +1,13 @@
 # RotoStream handoff
 
-Updated 2026-10-06. Start with [README](README.md), [results](docs/RESULTS.md),
+Updated 2026-10-15. Start with [README](README.md), [results](docs/RESULTS.md),
 [architecture](docs/ARCHITECTURE.md), [deployment](docs/DEPLOYMENT.md) and the
 [product performance report](docs/PRODUCT-PERFORMANCE.md).
+
+The current goal is a résumé demo, not a public multi-user service. The
+[October 15 demo review](docs/DEMO-REVIEW.md) records hosted output checks,
+the Meta workflow comparison, startup recovery and rendered-video previews.
+Private accounts and durable cloud job orchestration are deferred.
 
 ## Current state
 
@@ -18,8 +23,8 @@ Hiera encoder and released SAM 2.1 weights. This is a reproduction.
 | Color baseline, same quality protocol | 13.84 J&F |
 | Neural propagation, float32, RTX 4050 Laptop GPU | 2.88 FPS, excluding initialization, prompts and scoring |
 | Module parity | All checks within 1e-5; memory attention maximum difference 7.153e-7 |
-| Python suite | 273 passed, 1 expected failure (including long-sweep memory regressions) |
-| Frontend | 28 tests passed; lint, types and production build passed |
+| Python suite (historical recorded result) | 273 passed, 1 expected failure (including long-sweep memory regressions) |
+| Frontend (historical recorded result) | 28 tests passed; lint, types and production build passed |
 | Production dependency audit | No known vulnerabilities after pinning `source-map-js` 1.2.2 |
 | Native HTTP smoke | 73 checks passed, including SSE and six exports |
 | Training dry run | Three backward passes; finite loss, 272/305 trainable tensors with nonzero gradients |
@@ -27,6 +32,10 @@ Hiera encoder and released SAM 2.1 weights. This is a reproduction.
 [Raw reports](reports/benchmarks/) preserve the original measurement revision and
 dirty working-tree flag. Synthetic ablations are regressions, not real-video
 quality claims. No real-data fine-tuning or optimizer convergence is claimed.
+The counts above preserve prior validation observations; they are not a fresh
+2026-10-15 test run. The separately dated 2026-10-06 run below recorded 272 passed.
+The current hosted browser audit and performance validation are still in progress;
+see [release validation](docs/VALIDATION.md).
 
 ## Start and verify
 
@@ -89,8 +98,10 @@ sequential exports took 22.205 seconds. This is one local run, not a percentile 
 a neural quality/speed claim. A controlled local `replace_bg` comparison measured
 2.612 seconds at H.264 `medium` and 2.460 seconds at `veryfast`. Detailed
 methodology and the authenticated Vercel session-mode profile command are in
-[the performance report](docs/PRODUCT-PERFORMANCE.md). Hosted Cloud Run
-wall-clock performance has not yet been measured.
+[the performance report](docs/PRODUCT-PERFORMANCE.md). Full hosted workflow
+wall-clock profiling remains outstanding; the October 15
+[demo review](docs/DEMO-REVIEW.md) records observed hosted job durations and
+downloaded-output checks on the 60-frame synthetic clip.
 The earlier 20-second local profile against a pre-existing API process recorded
 an outdated 27.379-second export; inspection found that process had started
 before the current streaming exporter was written. Three fresh API profiles
@@ -143,7 +154,9 @@ prompt stayed on the subject across the clip (inside-minus-ring luminance +63.6 
 - Sessions cannot be overwritten; exports require successful sessions.
 - A run with missing or weak frames is never described as complete, and an export's
   manifest is built from the same facts as its artifact, so the two cannot disagree.
-- Metadata publishes atomically, paths are contained, and media stays behind authentication.
+- Metadata publishes atomically and paths are contained. The direct Cloud Run and
+  container gateways require authentication; the public Vercel proxy grants visitors
+  access to shared clips using server-side backend credentials.
 - Freeze Hiera only; decoder skip projections must retain gradients.
 - Trained-stack checkpoints restore the released encoder and validate contributed keys.
 - Scores retain protocol, precision, weight revision and independent-object caveats.

@@ -5,6 +5,12 @@ subject, see whether the mask is usable, and get a deliverable without managing
 temporary files or guessing what a long-running job is doing. This page records
 what that workflow costs today and how to measure it on a deployment.
 
+The [October 15 hosted demo review](DEMO-REVIEW.md) adds server job durations,
+mask comparisons and decoded-output inspection for the 60-frame synthetic
+sample. Those second-resolution job observations complement the local profiles
+below; they do not establish complete hosted wall-clock latency or cold/warm
+percentiles.
+
 ## A local end-to-end reference
 
 On 2026-10-06, the HTTP smoke runner processed the same 10.01-second,

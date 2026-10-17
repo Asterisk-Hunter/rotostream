@@ -11,6 +11,7 @@ import { Button, EmptyState, Spinner, StatusDot } from "@/components/ui";
 import { useJob } from "@/hooks/useJob";
 import { ApiError, api, assetUrl } from "@/lib/api";
 import { nextProblemFrame, promptSignature as promptSetSignature, reviewSummary } from "@/lib/review";
+import { connectStartup, startupErrorMessage } from "@/lib/startup";
 import {
   type BackgroundMode,
   type BoxPrompt,
@@ -73,7 +74,7 @@ async function fetchClip(videoId: string): Promise<Clip> {
   };
 }
 
-export function Studio() {
+export function Studio({ canDelete = true, publicDemo = false }: { canDelete?: boolean; publicDemo?: boolean }) {
   const [health, setHealth] = useState<Health | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [model, setModel] = useState("");
@@ -104,6 +105,7 @@ export function Studio() {
   const [trackJobId, setTrackJobId] = useState<string | null>(null);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(true);
   const [reload, setReload] = useState(0);
   const [trackSubmitting, setTrackSubmitting] = useState(false);
   const [exportSubmitting, setExportSubmitting] = useState(false);
@@ -138,15 +140,10 @@ export function Studio() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [healthPayload, modelList, videoList] = await Promise.all([
-          api.health(),
-          api.listModels(),
-          api.listVideos(),
-        ]);
-        if (cancelled) return;
+    return connectStartup({
+      load: () => Promise.all([api.health(), api.listModels(), api.listVideos()]),
+      onReady: ([healthPayload, modelList, videoList]) => {
+        setConnecting(false);
         setHealth(healthPayload);
         setBootError(null);
         setModels(modelList);
@@ -159,23 +156,21 @@ export function Studio() {
           modelList.find((entry) => entry.uses_memory && entry.implemented) ??
           modelList.find((entry) => entry.is_default && entry.implemented) ??
           modelList.find((entry) => entry.implemented);
-        setModel(preferred?.name ?? healthPayload.default_model);
+        setModel((current) =>
+          modelList.some((entry) => entry.name === current && entry.implemented)
+            ? current
+            : preferred?.name ?? healthPayload.default_model,
+        );
         if (videoList.length > 0 && !selectedIdRef.current) {
           selectedIdRef.current = videoList[0].id;
           setSelectedId(videoList[0].id);
         }
-      } catch (cause) {
-        if (cancelled) return;
-        setBootError(
-          cause instanceof Error
-            ? `${cause.message} — is the API running on ${api.baseUrl}?`
-            : String(cause),
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      },
+      onError: (cause) => {
+        setConnecting(false);
+        setBootError(startupErrorMessage(cause));
+      },
+    });
   }, [reload]);
 
   useEffect(() => {
@@ -623,25 +618,27 @@ export function Studio() {
     <div className="studio-shell flex flex-col lg:h-screen lg:overflow-hidden">
       <a href="#editor-main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:bg-ink-800 focus:px-4 focus:py-3">Skip to editor</a>
       <header className="studio-topbar flex shrink-0 items-center justify-between gap-4 border-b px-4 py-2.5 sm:px-5">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <h1 className="shrink-0 text-[15px] font-semibold tracking-[-0.04em] text-ink-100">Roto<span className="text-accent-400">Stream</span></h1>
           <span className="hidden h-4 w-px bg-ink-700 sm:block" />
-          <div className="min-w-0">
+          <div className="hidden min-w-0 sm:block">
             <p className="truncate text-[13px] font-medium text-ink-200">{video ? video.filename : "Untitled project"}</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          {!health && !bootError && <Spinner />}
+          {connecting && <Spinner />}
           <a href="/docs" className="text-xs text-ink-400 transition-colors hover:text-ink-100">Help</a>
-          <span className="border-l border-ink-700 pl-3 text-xs text-ink-400">Public demo · shared clips · usage limits apply</span>
+          {publicDemo && <span className="border-l border-ink-700 pl-3 text-xs text-ink-400"><span className="sm:hidden">Shared demo</span><span className="hidden sm:inline">Public demo · shared clips · usage limits apply</span></span>}
         </div>
       </header>
+
+      {connecting && <p role="status" className="shrink-0 border-b border-ink-800 px-4 py-2 text-xs text-ink-400">Connecting to processing service…</p>}
 
       {bootError && (
         <div role="alert" className="flex items-start gap-2 border-b border-negative/30 bg-negative/10 px-4 py-2 text-[11px] text-negative">
           <AlertIcon className="mt-px h-3.5 w-3.5 shrink-0" />
           <span className="flex-1 font-mono leading-snug">{bootError}</span>
-          <Button variant="ghost" onClick={() => { setBootError(null); setReload((value) => value + 1); }}>Retry</Button>
+          <Button variant="ghost" onClick={() => { setBootError(null); setConnecting(true); setReload((value) => value + 1); }}>Retry</Button>
           <Button variant="ghost" onClick={() => setBootError(null)} aria-label="Dismiss error">×</Button>
         </div>
       )}
@@ -655,6 +652,7 @@ export function Studio() {
             onSelect={beginClip}
             onUpload={handleUpload}
             onDelete={handleDelete}
+            canDelete={canDelete}
           />
         </div>
 

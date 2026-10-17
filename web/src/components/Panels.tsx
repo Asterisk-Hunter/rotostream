@@ -255,7 +255,7 @@ export function TrackPanel({
           <Select value={model} disabled={running} onChange={(event) => onModelChange(event.target.value)}>
             {models.map((entry) => (
               <option key={entry.name} value={entry.name} disabled={!entry.implemented}>
-                {entry.name}
+                {entry.name === "naive" ? "Colour baseline · demo" : entry.name === "sam2_memory" ? "SAM 2.1 · memory" : entry.name}
                 {entry.implemented ? "" : " · unavailable"}
               </option>
             ))}
@@ -608,6 +608,20 @@ export function ExportPanel({
                     {record.manifest.notes.slice(0, 2).join(" ")}
                   </p>
                 ) : null}
+                {record.status === "succeeded" && videoId && (record.kind === "replace_bg" || record.kind === "overlay_mp4") && (
+                  <details className="pt-1 text-[11px] text-ink-300">
+                    <summary className="cursor-pointer">Preview rendered video</summary>
+                    <video
+                      controls
+                      playsInline
+                      preload="none"
+                      aria-label={`Preview ${record.manifest?.label ?? record.kind}`}
+                      src={assetUrl.download(videoId, record.id)}
+                      className="mt-2 aspect-video w-full rounded-[4px] bg-black"
+                    />
+                    <p className="mt-1 text-[10px] text-ink-400">This is the rendered file, including its background and audio.</p>
+                  </details>
+                )}
               </li>
             ))}
           </ul>

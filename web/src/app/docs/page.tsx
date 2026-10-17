@@ -93,7 +93,7 @@ export default function DocsPage() {
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-500">06 / Expectations</p>
             <h2 className="mt-2 text-xl font-medium tracking-[-0.025em] text-ink-100">Clip size and speed</h2>
             <p className="mt-3">The hosted demo extracts up to 900 frames and processes them at a working resolution with a 720-pixel long side. Larger uploads take longer to upload and extract; a longer clip also means more frames to track and export. A 10-second clip is a good first test.</p>
-            <p className="mt-3">The hosted setup runs one CPU demo worker. Tracking and export jobs run on the service and do not survive an instance restart. SAM 2.1 is not enabled on that hosted CPU service. Treat the hosted service as a private, single-editor demo, not shared or archival storage.</p>
+            <p className="mt-3">The hosted setup runs one CPU demo worker. Tracking and export jobs run on the service and do not survive an instance restart. SAM 2.1 is not enabled on that hosted CPU service. The studio opens without signing in and shares uploaded clips between visitors. Use non-private footage; this workspace is not a backup or long-term archive.</p>
           </section>
 
           <section id="trouble" className="scroll-mt-8">
@@ -111,7 +111,7 @@ export default function DocsPage() {
           <section id="remove" className="scroll-mt-8">
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-500">08 / Your files</p>
             <h2 className="mt-2 text-xl font-medium tracking-[-0.025em] text-ink-100">Remove a clip and its work</h2>
-            <p className="mt-3">Use the clip’s delete control in the project list to remove its uploaded video, extracted frames, tracking sessions, masks, and exports from this workspace. Active jobs must finish or be cancelled first. On the hosted demo, files are stored in the service’s Cloud Storage workspace until you delete them; this is a private demo workspace, not a backup or long-term archive.</p>
+            <p className="mt-3">Deletion removes a clip’s uploaded video, extracted frames, tracking sessions, masks, and exports from the workspace. Active jobs must finish or be cancelled first. Public visitors cannot delete clips or exports from the hosted demo; cleanup requires an authenticated editor session. Hosted files are stored in a shared Cloud Storage workspace and can be seen by other visitors. On a local or private deployment, use the clip’s delete control in the project list.</p>
           </section>
 
           <footer className="border-t border-ink-800 pt-5 text-xs text-ink-500">

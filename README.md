@@ -50,9 +50,10 @@ and limits uploads and processing; use non-private footage. See the
 - Upload common video formats with real progress and bounded frame extraction.
 - Mark foreground/background with clicks, touch or keyboard input; add corrections
   on later frames and propagate in either direction.
-- Inspect masks, per-frame confidence, object absence and the memory bank. Frames
-  with no mask, weak frames and frames you marked as background are listed and
-  jumpable, and the studio never calls a run finished while any of them remain.
+- Inspect masks, per-frame confidence, object absence and the memory bank. Review
+  cues distinguish missing masks, low-confidence masks and frames you deliberately
+  marked as background. Problem-frame controls jump to missing or weak masks;
+  deliberate background is recorded separately.
 - See what a deliverable will be before rendering it: every export records the
   container, dimensions, audio and the mask coverage it was built from.
 - Keep immutable tracking sessions so a new run cannot change an existing export.
@@ -69,6 +70,9 @@ and limits uploads and processing; use non-private footage. See the
   clip and all six deliverables in 31.3 seconds; it is a workflow baseline, not a
   Cloud Run or neural-tracking promise. See [performance measurements and the
   authenticated deployment profiling command](docs/PRODUCT-PERFORMANCE.md).
+
+The [demo review](docs/DEMO-REVIEW.md) records the hosted editing/output checks,
+the comparison with Meta's SAM 2 workflow, and the limits of the CPU demo.
 
 ## Run locally
 
